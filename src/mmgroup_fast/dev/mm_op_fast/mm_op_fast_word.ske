@@ -1,0 +1,84 @@
+#include "mm_op_fast_types.h"
+#include "mm_op_fast.h"
+#include "mm_op_sub.h"   
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT 
+//  %%GEN c
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+#define h (s_it.data)
+/// @endcond
+
+
+// %%EXPORT p
+int32_t mm_op_fast_word(mmv_fast_matrix_type *pm, uint32_t *g, int32_t len_g, int32_t e)
+{
+     int32_t status;
+     mm_group_iter_t s_it;
+
+     if (mm_op_fast_alloc(pm, 1)) return -1;
+     mm_group_iter_start(&s_it, g, len_g, e);
+     do {
+         status = mm_group_iter_next(&s_it);
+         if (h[0]) {
+             if (mm_op_fast_op_xi(pm, h[0]) < 0) return -1;
+         }
+         if (h[1]) {
+             if (mm_op_fast_op_t(pm, h[1]) < 0) return -1;
+         }
+         if (h[2] | h[3] | (h[4] && !h[5]) ) {
+             if (mm_op_fast_op_xy(pm, h[2], h[3], h[4]) < 0) return -1;
+             h[4] = 0;
+         }
+         if (h[4] | h[5]) {
+             if (mm_op_fast_op_pi(pm, h[4], h[5]) < 0) return -1;
+         }
+     } while (status == 0);
+     
+     // if (p0 != v) mm_op__copy(work, v);
+     return status - 1;
+}
+
+
+// %%EXPORT p
+int32_t mm_op_fast_word_A_mod_3(mmv_fast_row32_type *pm, uint32_t *g, int32_t len_g)
+{
+    uint32_t i, m;
+    for (i = 0; i < len_g; ++i) {
+         m = g[i];
+         switch ((m >> 28) & 7) {
+              case 0:
+              case 1:  // tag d
+              case 3:  // tag x
+                  break;
+              case 2:  // tag p
+                  mm_op_fast_op_p_A_mod_3(pm, m);
+                  break;
+              case 4:  // tag y
+                  mm_op_fast_op_y_A_mod_3(pm, m);
+                  break;
+              case 6:  // tag l
+                  mm_op_fast_op_xi_A_mod_3(pm, m);
+                  break;
+              case 5:  // tag t
+                  if ((m + 1) & 2) return -1;
+                  break;
+              case 7:
+              default:
+                  if (m & 0x7fffffffUL) return -1;
+                  break;
+         }
+    }
+    return 0;
+}
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

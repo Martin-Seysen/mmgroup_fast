@@ -1,0 +1,88 @@
+#define MM_OP_FAST_PERMUTATIONS
+#define MM_OP_FAST_HADAMARD
+#include <stdlib.h>
+#include "mm_op_fast.h"
+#include "mat24_functions.h"
+#include "mm_basics.h"
+
+
+
+
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT 
+//  %%GEN c
+
+
+
+
+
+
+
+/***************************************************************************
+**  Tables for monomial part of operation 'xi' with shuffling
+***************************************************************************/
+
+
+/// @cond DO_NOT_DOCUMENT
+#ifdef GCC_VECTORS
+
+
+
+
+
+// %%EXPORT_TABLE 
+uint32_t MM_FAST_OFFSET_XI[5][2][2] = {
+    // %%TABLE  MM_FAST_OFFSET_XI, uint32
+};
+
+
+// %%EXPORT_TABLE 
+uint8_t MM_FAST_TABLE_XI[] = {
+    // %%TABLE  MM_FAST_TABLE_XI, uint8
+};
+
+
+
+// %%EXPORT_TABLE 
+uint8_t MM_FAST_INDICES_XI[] = {
+    // %%TABLE  MM_FAST_INDICES_XI, uint8
+};
+
+
+
+// %%EXPORT_TABLE 
+mmv_fast_row32_type  MM_FAST_DATA_XI[] = {
+    // %%TABLE  MM_FAST_DATA_SIGN_XI, uint8
+    ,
+  #ifdef SHUFFLE64
+    // %%TABLE  MM_FAST_DATA_PERM_XI, uint8
+  #else
+    // %%TABLE  MM_FAST_DATA_PERM_XI % 16, uint8
+  #endif
+};
+
+#endif // #ifdef GCC_VECTORS
+/// @endcond 
+
+
+
+
+/// @cond DO_NOT_DOCUMENT
+
+// %%EXPORT_TABLE 
+mmv_fast_row32_type   MM_FAST_OCTAD_EXPAND[] = {
+    // %%TABLE OCTAD_EXPAND_TABLE, uint8
+};
+
+/// @endcond 
+
+
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

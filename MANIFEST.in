@@ -1,0 +1,22 @@
+recursive-include . *.ske *.pyx *.ini *.rst *.bat
+recursive-include src/mmgroup_fast *.py
+include .gitignore
+include *.py
+include src/*.py
+include src/mmgroup_fast/dev/c_files/*.h
+include src/mmgroup_fast/tests/test_mm_op_c/*.c
+include src/mmgroup_fast/tests/test_mm_op_c/*.txt
+include README.rst
+include requirements.txt
+include pyproject.toml
+include readthedocs.yaml
+include MANIFEST.in
+include docs/source/*.rst
+include docs/source/*.inc
+include docs/source/*.py
+include docs/source/*.bib
+include docs/requirements.txt
+
+
+
+

@@ -1,0 +1,131 @@
+/** @file mm_axis3_case4A.c
+
+Deals with axes of axis type 4A
+
+*/
+
+#include <stdlib.h>
+#include <stdint.h>
+#include "mat24_functions.h"
+#define MMGROUP_GENERATORS_INTERN
+#include "mmgroup_generators.h"
+#include "clifford12.h"
+#include "mm_op_fast.h"
+#include "mm_op_fast_intern.h"
+#include "mm_op_sub.h"   
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT 
+//  %%GEN c
+
+
+
+
+
+
+
+
+
+/**********************************************************************
+* Dealing with cases 4A
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+/**  
+  @brief Deal with axis type 4A
+*/
+static inline 
+int32_t analyze_case_4A(mmv_fast_Amod3_type *pa)
+{
+    if (pa->p_source == NULL || pa->row_source < 0 || 
+        pa->norm != 2 || pa->diag != 1) return -11;
+    if (mm_axis3_fast_intersect(pa, 0) < 0) return -12;
+    if (pa->len_B[0] != 1) return -13;
+    uint64_t v3 = mm_axis3_fast_to_leech_mod3(pa, 24);
+    uint64_t v2 = gen_leech3to2_type4(v3);
+    if (v2 == 0) return -13;
+    return (uint32_t)((3UL << 25) + v2);
+}
+
+
+
+
+/// @endcond 
+
+
+
+
+
+
+/**********************************************************************
+* intermediate function for testing
+**********************************************************************/
+
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+/**  
+  @brief Yet to be documented!!!!!
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_analyze_case_4A(mmv_fast_Amod3_type *pa, uint32_t *buf, uint32_t l_buf)
+{
+    int32_t status = analyze_case_4A(pa);
+    if (status < 0) return status;
+    if (l_buf) buf[0] = status;
+    else return 0;
+    return 1;
+}
+
+
+
+
+
+
+
+/// @endcond 
+
+
+/**********************************************************************
+* The final exported function of this module
+**********************************************************************/
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+
+/**  
+  @brief Yet to be documented!!!!!
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_find_v4_case_4A(mmv_fast_Amod3_type *pa)
+{
+    return analyze_case_4A(pa);
+}
+
+
+
+/// @endcond 
+
+
+
+
+
+
+/**********************************************************************
+* end of C functions
+**********************************************************************/
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

@@ -1,0 +1,268 @@
+/** @file mm_axis3_case4C.c
+
+Deals with axes of axis type 4C
+
+*/
+
+#include <stdlib.h>
+#include <stdint.h>
+#include "mat24_functions.h"
+#define MMGROUP_GENERATORS_INTERN
+#include "mmgroup_generators.h"
+#include "clifford12.h"
+#include "mm_op_fast.h"
+#include "mm_op_fast_intern.h"
+#include "mm_op_sub.h"   
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT 
+//  %%GEN c
+
+
+
+
+
+
+/**********************************************************************
+* Tables for dealing with case 4C
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+static uint32_t TABLE_BASIS_E8[16] =  {
+  // %%TABLE MM_AXIS3_CASE_4C_BASIS_E8, uint32
+};
+
+
+static uint16_t TABLE_SHORT_BW16[135] =  {
+  // %%TABLE MM_AXIS3_CASE_4C_SHORT_BW16, uint16
+};
+
+
+static uint8_t TABLE_SHORT_SUB_E8[135 * 4] =  {
+  // %%TABLE MM_AXIS3_CASE_4C_SHORT_SUB_E8, uint8
+};
+
+
+static uint8_t GRAYCODE[15] = {0,1,0,2,0,1,0,3,0,1,0,2,0,1,0};
+
+/// @endcond 
+
+
+
+
+
+
+
+/**********************************************************************
+* Data structure for dealing with case 4C
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+// Stucture for assembling data about an axis of type 2B or 9F  
+
+#define LEN_TF 8         // length of component tf in following structure    
+
+typedef struct  {
+    uint32_t v4;         // resulting type-4 vector
+    uint32_t len_tf;     // length of transformation ``tf`` in this struct
+    uint32_t tf[LEN_TF]; // transformation from standard to dedicated octad
+    uint32_t basis[16];  // basis of transformed subspace given by std octad
+} info_4C_type;
+
+
+/// @endcond 
+
+
+/**********************************************************************
+* Find best vector for reducing
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+static inline 
+int32_t find_v4(mmv_fast_Amod3_type *pa, uint32_t *basis)
+{
+    mmv_fast_type *padata = mm_axis3_fast_source_ptr(pa);
+    if (padata == NULL) return -3;
+    uint8_t *vector = padata->b;
+    uint32_t sh = 2 * pa->row_source;
+    int32_t i, j;
+    uint32_t bx[4][16];
+    for (i = 0; i < 4; ++i) {
+        bx[i][0] = 0;
+        for (j = 0; j < 4; ++j) bx[i][1 << j] = basis[4*i + j] & 0xffffff;
+        for (j = 3; j < 16; ++j) if (j & (j - 1)) {
+            uint32_t k = j & (0 - j);
+            bx[i][j] = bx[i][k] ^ bx[i][j ^ k];
+        }
+    }
+
+    for (i = 0; i < 135; ++i) {
+        uint32_t v = 0, coord = TABLE_SHORT_BW16[i], ind;
+        for (j = 0; j < 4; ++j) v ^= bx[j][(coord >> (4 * j)) & 0xf];
+        ind = mm_aux_index_leech2_to_intern_fast(v);
+        if (((vector[ind] >> sh) + 1) & 2) goto found;
+    }
+    return -120;
+
+found:
+    ((uint32_t*)(pa->a + 24))[6] = i; // debug
+    for (j = 0; j < 4; ++j) {
+         uint8_t coord = TABLE_SHORT_SUB_E8[(i << 2) + j];
+         bx[2][j] = bx[0][coord & 0xf] ^ bx[1][coord >> 4];
+    }
+    
+    uint32_t v = 0, w, w_min = 0xffffffffUL;
+    for (i = 0; i < 15; ++i) {
+        v ^= bx[2][GRAYCODE[i]]; 
+        w = v ^ (gen_leech2_coarse_subtype_inline(v) << 24);
+        if (w < w_min) w_min = w;
+    }
+    if (w_min == 0xffffffffUL) return -121;
+    return (w_min & 0xffffffUL) + (5UL << 25);
+
+}
+
+/// @endcond 
+
+
+/**********************************************************************
+* Dealing with cases 4C
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+/**  
+  @brief Deal with axis type 4C
+*/
+static inline 
+int32_t analyze_case_4C(mmv_fast_Amod3_type *pa, info_4C_type *pf)
+{
+    if (pa->p_source == NULL || pa->row_source < 0 || 
+        pa->norm != 0 || pa->diag != 2) return -11;
+    if (mm_axis3_fast_intersect(pa, 1) < 0) return -12;
+    if (pa->len_B[0] != 8) return -13;
+    int32_t status = mm_axis3_fast_find_v4_subspace(pa, 8, 0);
+    if (status < 0) return -14;
+    pf->v4 = status;
+    status = gen_leech2_reduce_type4(pf->v4, pf->tf);
+    if (status < 0) return -15;
+    pf->len_tf = status;
+    status = mm_axis3_fast_op_G_x0(pa, pf->tf, pf->len_tf, 0);
+    if (status < 0) return -17;
+
+    static uint8_t IM[6] = {0,1,2,3,4,5};
+    uint8_t *pd = &((pa->a)[24].b[0]), b1[6], perm[24];
+    uint32_t v = 0, i, d;
+    // set bit i of v to 1 if A[i,i] = 2 (mod 3), and to 0 otherwise
+    for (i = 0; i < 24 * 32; i += 33) {
+         d = pd[i];
+         v |= ((d >> 1) & (~d) & 1) << (i & 31);
+    }
+    if (mat24_bw24(v) != 8) return -1800 - mat24_bw24(v);
+    mat24_vect_to_list(v, 6, b1);
+    status = mat24_perm_from_map(b1, IM, 6, perm);
+    if (status == 0 || status > 3) return -19;
+    pf->tf[pf->len_tf] = MMGROUP_ATOM_TAG_P + mat24_perm_to_m24num(perm);    
+    status = mm_axis3_fast_op_G_x0(pa, pf->tf + pf->len_tf, 1, 1);
+    if (status < 0) return -20;
+    ++pf->len_tf;
+    memcpy(pf->basis, TABLE_BASIS_E8, 16*sizeof(uint32_t));
+    status = gen_leech2_op_word_leech2_many(
+        pf->basis, 16, pf->tf, pf->len_tf, 1);
+    if (status < 0) return status;
+
+    status = find_v4(pa, pf->basis);
+    pf->v4 = status;
+    return status;
+}
+
+
+
+
+/// @endcond 
+
+
+
+
+
+
+/**********************************************************************
+* intermediate function for testing
+**********************************************************************/
+
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+/**  
+  @brief Yet to be documented!!!!!
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_analyze_case_4C(mmv_fast_Amod3_type *pa, uint32_t *buf, uint32_t l_buf)
+{
+    int32_t status;
+    info_4C_type sf;
+    status = analyze_case_4C(pa, &sf);
+    if (status < 0) return status;
+    uint32_t bufsize = sizeof(info_4C_type) /  sizeof(uint32_t);
+    if (l_buf >= bufsize) memcpy(buf, &sf, sizeof(info_4C_type));
+    else return 0;
+    return bufsize;
+}
+
+
+
+
+
+
+
+/// @endcond 
+
+
+/**********************************************************************
+* The final exported function of this module
+**********************************************************************/
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+
+/**  
+  @brief Yet to be documented!!!!!
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_find_v4_case_4C(mmv_fast_Amod3_type *pa)
+{
+    info_4C_type sf;
+    uint32_t status = analyze_case_4C(pa, &sf);
+    return status;
+}
+
+
+
+/// @endcond 
+
+
+
+
+
+
+/**********************************************************************
+* end of C functions
+**********************************************************************/
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

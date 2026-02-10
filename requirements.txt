@@ -1,0 +1,19 @@
+numpy>=1.23
+scipy
+Cython
+wheel
+build
+breathe
+regex
+pytest
+pytest-xdist # for parallel testing
+sphinx<7.0  # see https://github.com/readthedocs/readthedocs.org/issues/10279
+sphinxcontrib.bibtex
+sphinxcontrib-tikz
+sphinx-rtd-theme
+patchelf; sys_platform == 'linux' or sys_platform == 'darwin' 
+mmgroup
+requests
+
+ 
+

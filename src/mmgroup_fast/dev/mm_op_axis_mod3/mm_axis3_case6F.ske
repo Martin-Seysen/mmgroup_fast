@@ -1,0 +1,504 @@
+/** @file mm_axis3_case6F.c
+
+Deals with axes of axis type 2B and 6F and 10B
+
+*/
+
+#include <stdlib.h>
+#include <stdint.h>
+#include "mat24_functions.h"
+#define MMGROUP_GENERATORS_INTERN
+#include "mmgroup_generators.h"
+#include "clifford12.h"
+#include "mm_op_fast.h"
+#include "mm_op_fast_intern.h"
+#include "mm_op_sub.h"   
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT 
+//  %%GEN c
+
+
+
+
+/**********************************************************************
+* Data structure for dealing with case 2B and 6F
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+// Stucture for assembling data about an axis of type 2B or 9F  
+
+#define LEN_TF 8         // length of component tf in following structure    
+
+typedef struct  {
+    uint32_t ax_type;    // axis type: 2 for 2B, 9 for 6F
+    uint32_t v2;         // input v2;
+    uint32_t v4;         // vector transformed to standard type-4 vector Omega
+    uint32_t len_tf;     // length of transformation ``tf`` in this struct
+    uint32_t v2_img;     // inverse image of v2 under that transformation
+    uint32_t tf[LEN_TF]; // transformation from standard to dedicated octad
+    uint32_t basis[8];   // basis of transformed subspace given by std octad
+    uint32_t b[2][16];   // expanded form of part ``basis``
+} info_6F_type;
+// For a structure s of that type we have s.b[i, 1<<j] = s.basis[4*i+j];
+// and we have s.b[i, j1  ^ j2] = s.b[i, j1] ^ s.b[i, j2] 
+
+
+/// @endcond 
+
+
+
+/**********************************************************************
+* Tables for dealing with case 2B
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+static uint32_t E8_BASIS[8] =  {
+    // %%TABLE MM_TABLE_CASE2B_BASIS_E8, uint32
+};
+
+static uint8_t TYPE4_SCAL_0_1[135] =  {
+    // %%TABLE MM_TABLE_CASE2B_BASIS_TYPE4_SCAL_0_1, uint8
+};
+
+
+static uint8_t TYPE4_SCAL_8_9[15] =  {
+    // %%TABLE MM_TABLE_CASE2B_BASIS_TYPE4_SCAL_8_9, uint8
+};
+
+
+
+/// @endcond 
+
+
+
+
+
+
+
+
+
+
+/**********************************************************************
+* Load data into a structure of type mm_axis3_fast_load
+**********************************************************************/
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+/**  
+  @brief Find type-4 vector in a k-dimensional subspace of GF(2)^24
+
+  We assume that ``(pa->a)[24+i], 0 <= i < k`` spans a subpace ``V``
+  of the Leech lattice mod 3. We also assume that ``V`` is
+  invariant under an involution of the Leech lattice; and
+  that ``v2`` is 0 or a type-2 vector in *Leech lattice encoding*.
+  Then we assume that ``v2`` is contained in ``V`` or in the 
+  orthogonal complement of ``V``.
+
+  The function tries to find a type-4 vector ``v4`` in ``V``. In
+  case ``v2 != 0`` the vector ``v4`` will also 
+  satisfy ``type(v4 + v2) == 2``. The function returns a negative
+  value in case of failure.
+
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_find_v4_subspace(mmv_fast_Amod3_type *pa, uint32_t k, uint32_t v2)
+{
+    int64_t v4 = mm_axis3_fast_rand_v(pa, k, 4, 8), n = 10000;
+    if (v4 < 0 || k > 8) return -21;
+    if (v2 == 0) return (int32_t) v4;
+    if (gen_leech2_type(v2) != 2) return -21;
+    do  {
+        if (gen_leech2_type(v2 ^ v4) == 2) return (int32_t) v4;
+        v4 = mm_axis3_fast_rand_v(pa, k, 4, 0);
+        if (v4 < 0) return -21;
+    } while (--n);
+    return -22;
+}
+
+
+
+
+static inline int32_t find_perm24(mmv_fast_Amod3_type *pa, uint32_t v2)
+{
+     static uint8_t IM1[6] = {0,1,2,3,4,5};
+     static uint8_t IM2[7] = {0,1,2,3,4,8,9};
+     uint8_t *pd = &((pa->a)[24].b[0]), b1[7], *im, perm[24];
+     uint32_t v = 0, c, n, i, status;
+     for (i = 0; i < 24 * 32; i += 33) {
+         v |= (((uint32_t)pd[i] + 1UL) & 2UL) << (i & 31);
+     }
+     v >>= 1; // bit vector of diagonal nonzero entries of matrix A
+     if (mat24_bw24(v) != 8) return -31;
+     if (v2 & 0x7ff800ULL) return -32;
+     c =  mat24_cocode_syndrome(v2 & 0xfff, 24);
+     if (c & 0xff000000UL) return -33;  // cocode syndrome of weight 0 or 2
+     if (c == 0) {
+         mat24_vect_to_list(v, 6, b1);
+         n = 6; im = IM1;
+     } else if ((v & c) == c) {
+         if (mat24_bw24(c) != 2) return -34;
+         mat24_vect_to_list(c, 2, b1);
+         mat24_vect_to_list(v & ~c, 4, b1+2);
+         n = 6; im = IM1;
+     } else {
+         uint32_t t = mat24_intersect_octad_tetrad(v, c);
+         if (v & c) return -35;
+         if (t & 0xff000000UL) return -36;
+         if (mat24_bw24(c) != 2) return -37;
+         mat24_vect_to_list(v & t, 4, b1);
+         mat24_vect_to_list(v & ~t, 1, b1+4);
+         mat24_vect_to_list(c, 2, b1+5);
+         n = 7; im = IM2;
+     }
+     status = mat24_perm_from_map(b1, im, n, perm);
+     if (status == 0 || status > 3) return -10 + status;
+     return mat24_perm_to_m24num(perm);    
+}
+
+
+/// @endcond 
+
+
+
+
+/**********************************************************************
+* Dealing with cases 2B and  6F
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+/**  
+  @brief Stores expanded basis in structure info_6F_type
+
+  The function computes the expandend basis from member ``pf->basis``
+  of the structure referred by ``pf``and stroes it in  ``pf->b``.  
+
+  The we will have ``pf->b[i, 1<<j] = pf->basis[4*i+j]``,
+  for ``i = 0, 1``, ``0 <= j < 4``;
+  and  ``s.b[i, j1  ^ j2] = s.b[i, j1] ^ s.b[i, j2]``,
+  for ``0 <= j1, j2 < 16``.
+*/
+static inline void store_expanded_basis(info_6F_type *pf)
+{
+    uint32_t i;
+    pf->b[0][0] = pf->b[1][0] = 0;
+    for (i = 0; i < 4; ++i) {
+        pf->b[0][1 << i] = pf->basis[i] & 0xffffff;
+        pf->b[1][1 << i] = pf->basis[4+i] & 0xffffff;
+    }
+    for (i = 3; i < 16; ++i) {
+        uint32_t j = i & (0 - i);
+        pf->b[0][i] = pf->b[0][j] ^ pf->b[0][i ^ j];
+        pf->b[1][i] = pf->b[1][j] ^ pf->b[1][i ^ j];
+    } 
+}
+
+
+/**  
+  @brief Deal with axis type 2B and 6F
+*/
+static inline 
+int64_t analyze_case_6F(mmv_fast_Amod3_type *pa, uint32_t v2, info_6F_type *pf)
+{
+    memset(pf->tf, 0, sizeof(pf->tf));
+    pf->ax_type = 0xffffffffULL;
+    mmv_fast_type *padata = mm_axis3_fast_source_ptr(pa);
+    if (padata == NULL || pa->row_source < 0 || 
+        pa->norm != 2 || pa->diag != 1) return -11;
+    if (mm_axis3_fast_intersect(pa, 1) < 0) return -12;
+    if (pa->len_B[0] != 8) return -13;
+    int32_t status = mm_axis3_fast_find_v4_subspace(pa, 8, v2);
+    if (status < 0) return -14000 + status;
+    pf->v4 = status;
+    status = gen_leech2_reduce_type4(pf->v4, pf->tf);
+    if (status < 0) return -15000 + status;
+    pf->len_tf = status;
+    pf->v2 = v2;
+    status = mm_axis3_fast_op_G_x0(pa, pf->tf, pf->len_tf, 0);
+    if (status < 0) return -16000 + status;
+    if (v2) pf->v2_img = gen_leech2_op_word_leech2(
+        pf->v2, pf->tf, pf->len_tf, 0);
+    else pf->v2_img = 0;
+    status = find_perm24(pa, pf->v2_img);
+    if (status < 0) return -17000 + status;
+    pf->tf[pf->len_tf] = MMGROUP_ATOM_TAG_P + status;
+    status = mm_axis3_fast_op_G_x0(pa, pf->tf + pf->len_tf, 1, 1);
+    if (status < 0) return  -18000 + status;
+    if (v2) pf->v2_img = gen_leech2_op_atom(pf->v2_img, pf->tf[pf->len_tf]);
+    ++pf->len_tf;
+    mm_group_invert_word(pf->tf, pf->len_tf);
+
+    uint32_t v = gen_leech2_op_word(0x200, pf->tf, pf->len_tf);
+    v = mm_aux_index_leech2_to_intern_fast(v);
+    uint8_t *pb = &(padata->r32[0].b[0]);
+    uint32_t shift = 2 * pa->row_source;
+    uint8_t x = pb[v] >> shift; 
+    pf->ax_type = (x + 1) & 2 ?  2 : 9;
+
+    if (pf->ax_type == 2 && pf->v2_img & 0x800000UL) {
+        // The follwing atom in N_x0 negates rows and columns
+        // 2*i, 0 <= i < 8, in the part 'A' of an axis
+        uint32_t atom = 0x400002acUL;
+        status = mm_axis3_fast_op_G_x0(pa, &atom, 1, 1);
+        if (status < 0) return  -19000 + status;
+        pf->v2_img = gen_leech2_op_atom(pf->v2_img, atom);
+        memmove(pf->tf + 1, pf->tf, sizeof(pf->tf) - sizeof(uint32_t));
+        pf->tf[0] = atom | 0x80000000UL;
+        ++pf->len_tf;
+    }
+    
+    if ((pa->sub_row_source & ~3) == 0 && pf->ax_type == 2 && v2 == 0) {
+        uint32_t i, sh = 2 * pa->sub_row_source;
+        v32_8_type t, *pa1 = &((pa->a)[24].v32[0]);
+        for (i = 0; i < 24; ++i) {
+            t = (padata->v32[i] >> sh) & 3;
+            pa1[i] = t;
+        }
+        mm_group_invert_word(pf->tf, pf->len_tf);
+        status = mm_axis3_fast_op_G_x0(pa, pf->tf, pf->len_tf, 1);
+        mm_group_invert_word(pf->tf, pf->len_tf);
+        if (status < 0) return -21000 + status;
+        pf->ax_type |= 0x10;
+    }
+    pf->v2_img &= 0xffffff;
+    
+    memcpy(pf->basis, E8_BASIS, 8 * sizeof(uint32_t));
+    status = gen_leech2_op_word_leech2_many(pf->basis, 8,
+        pf->tf, pf->len_tf, 0);
+    if (status < 0) return -22000 + status;
+
+    store_expanded_basis(pf);
+    if (pf->ax_type & 0x10) {
+        status = mm_axis3_fast_2B_load_baby(pa, pf->b);
+        if (status & 1) pf->ax_type |= 0x20;
+        if (status < 0) return status;
+    }
+    return 0;    
+}
+
+
+#define pf_v(pf, i) ((pf)->b[0][(i) & 15] ^ (pf)->b[1][((i) >> 4) & 15])
+
+
+/// @endcond 
+
+
+
+
+
+
+/**********************************************************************
+* intermediate function for testing
+**********************************************************************/
+
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+/**  
+  @brief Yet to be documented!!!!!
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_analyze_case_2B_6F(mmv_fast_Amod3_type *pa, uint32_t v2, uint32_t *buf, uint32_t l_buf)
+{
+    int32_t status;
+    info_6F_type f;
+    status = analyze_case_6F(pa, v2, &f);
+    if (status < 0) return status;
+    uint32_t bufsize = sizeof(info_6F_type) /  sizeof(uint32_t);
+    if (l_buf >= bufsize) memcpy(buf, &f, sizeof(info_6F_type));
+    else return 0;
+    return bufsize;
+}
+
+
+
+
+
+
+
+/// @endcond 
+
+
+/**********************************************************************
+* The final exported function of this module for case 2B and 6F
+**********************************************************************/
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+#define COCODE_0_1 0x600
+#define COCODE_8_9 0x420
+
+
+
+/**  
+  @brief Yet to be documented!!!!!
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_find_v4_case_2B_6F(mmv_fast_Amod3_type *pa, uint32_t v2)
+{
+    int32_t status;
+    uint32_t v, v_min = 0x7fffffffUL, ax_type;
+    uint8_t *v_start, v_len, i;
+    info_6F_type f;
+    status = analyze_case_6F(pa, v2, &f);
+    if (status < 0) return status;
+    ax_type = f.ax_type;
+    if (f.ax_type == 9) {
+        v_start = TYPE4_SCAL_0_1; v_len = 135;
+    } else if (f.ax_type == 2) {
+        switch(f.v2_img) {
+            case 0:
+                v_start = TYPE4_SCAL_0_1; v_len = 135;
+                break;
+            case COCODE_0_1:
+                v_start = TYPE4_SCAL_0_1; v_len = 63;
+                break;
+            case COCODE_8_9:
+                v_start = TYPE4_SCAL_8_9; v_len = 15;
+                break;
+            default:
+                return -103;
+        }
+    } else if (f.ax_type == 0x32) {
+        return mm_axis3_fast_2B_compute_v4(pa, f.b);
+    } else if (f.ax_type == 0x12) {
+        return mm_axis3_fast_2B2_compute_v4(pa, f.tf);
+    } else return -102;
+
+    for (i = 0; i < v_len; ++i) {
+        v = pf_v(&f, v_start[i]);
+        v ^= gen_leech2_coarse_subtype_inline(v) << 24;
+        if (v < v_min) v_min = v;
+    }
+    return (ax_type << 25) + (v_min & 0xffffff);
+}
+
+
+
+/// @endcond 
+
+
+
+/**********************************************************************
+* Dealing with cases 10B
+**********************************************************************/
+
+
+
+static inline uint32_t row_is_nonzero(mmv_fast_Amod3_type *pa, uint32_t i)
+{
+    mmv_fast_row32_type *row = pa->a + 24 + i;
+    uint64_t r = (row->u64[0] + 0x0101010101010101ULL) 
+               | (row->u64[1] + 0x0101010101010101ULL) 
+               | (row->u64[2] + 0x0101010101010101ULL); 
+    return (r & 0x0202020202020202) != 0;
+}
+
+
+/**  
+  @brief Deal with axis type 10B
+*/
+static inline 
+int64_t analyze_case_10B(mmv_fast_Amod3_type *pa, info_6F_type *pf)
+{
+     memset(pf->tf, 0, sizeof(pf->tf));
+     int32_t status = mm_axis3_fast_echelon(pa, 2);
+     if (status < 0) return -130;
+     if (pa->norm != 2 || pa->diag != 2) return -11;
+     if (mm_axis3_fast_intersect(pa, 0) < 0) return -12;
+     if (pa->len_B[0] != 8) return -13;
+     status = mm_axis3_fast_find_v4_subspace(pa, 8, 0);
+     if (status < 0) return -14;
+     pf->v4 = status;
+     status = gen_leech2_reduce_type4(pf->v4, pf->tf);
+     if (status < 0) return -15000 + status;
+     pf->len_tf = status;
+     status = mm_axis3_fast_op_G_x0(pa, pf->tf, pf->len_tf, 0);
+     if (status < 0) return -16000 + status;
+     mm_axis3_fast_subtract_diag(pa, 2, 1);
+
+     static uint8_t IMG[6] = {0,1,2,3,4,5}, b1[7], perm[24];
+     uint32_t i, j;
+     for (i = j = 0; i < 24; ++i) {
+         if (row_is_nonzero(pa, i)) {
+             b1[j++] = i;
+             if (j >= 6) break;
+         }
+     }
+     status = mat24_perm_from_map(b1, IMG, 6, perm);
+     if (status == 0 || status > 3) return -10 + status;
+     pf->tf[pf->len_tf] = MMGROUP_ATOM_TAG_P + mat24_perm_to_m24num(perm);    
+     status = mm_axis3_fast_op_G_x0(pa, pf->tf + pf->len_tf, 1, 1);
+     if (status < 0) return  -18000 + status;
+     ++pf->len_tf;
+
+     mm_group_invert_word(pf->tf, pf->len_tf);
+     memcpy(pf->basis, E8_BASIS, 8 * sizeof(uint32_t));
+     status = gen_leech2_op_word_leech2_many(pf->basis, 8,
+         pf->tf, pf->len_tf, 0);
+     if (status < 0) return -22000 + status; 
+     store_expanded_basis(pf);
+     uint32_t v_min = 0xffffffffUL;
+     for (i = 0; i < 135; ++i) {
+         uint32_t v = pf_v(pf, TYPE4_SCAL_0_1[i]);
+         v ^= gen_leech2_coarse_subtype_inline(v) << 24;
+         if (v < v_min) v_min = v;
+     }
+     pf->v4 = (11 << 25) + (v_min & 0xffffff);
+     return pf->v4;
+}
+
+
+
+
+/**  
+  @brief Yet to be documented!!!!!
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_analyze_case_10B(mmv_fast_Amod3_type *pa, uint32_t *buf, uint32_t l_buf)
+{
+    int32_t status;
+    info_6F_type f;
+    status = analyze_case_10B(pa, &f);
+    if (status < 0) return status;
+    uint32_t bufsize = sizeof(info_6F_type) /  sizeof(uint32_t);
+    if (l_buf >= bufsize) memcpy(buf, &f, sizeof(info_6F_type));
+    else return 0;
+    return bufsize;
+}
+
+
+/**  
+  @brief Yet to be documented!!!!!
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_find_v4_case_10B(mmv_fast_Amod3_type *pa)
+{
+    info_6F_type f;
+    return  analyze_case_10B(pa, &f);
+}
+
+
+/**********************************************************************
+* end of C functions
+**********************************************************************/
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

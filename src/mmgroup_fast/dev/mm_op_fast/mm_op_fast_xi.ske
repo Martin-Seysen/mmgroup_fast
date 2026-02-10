@@ -1,0 +1,497 @@
+#define MM_OP_FAST_PERMUTATIONS
+#define MM_OP_FAST_HADAMARD
+#include <stdlib.h>
+#include "mm_op_fast.h"
+#include "mat24_functions.h"
+
+
+
+
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT 
+//  %%GEN c
+
+
+/***************************************************************************
+** Constants for Hadamard part of operation 'xi' on tags 'A' and 'YZ'
+***************************************************************************/
+
+
+
+
+
+#ifdef GCC_VECTORS
+#ifdef SHUFFLE64
+    #define _shuffle32(res, data, mask) \
+         res.v32[0] = __builtin_shuffle((data).v32[0], mask.v32[0])
+#else
+# ifdef GCC_AVX2
+    #define _shuffle32(res, data, mask) \
+         res.v32[0] = __builtin_shuffle((data).v32[0], mask.v32[0])
+# else
+    #define _shuffle32(res, data, mask) \
+         res.v16[0] =__builtin_shuffle((data).v16[0], mask.v16[0]); \
+         res.v16[1] =__builtin_shuffle((data).v16[1], mask.v16[1])
+# endif
+#endif  // #ifdef SHUFFLE64
+#endif  // #ifdef GCC_VECTORS
+
+
+
+
+
+
+/***************************************************************************
+**  Operation of 'xi' on a row for tags 'A' or 'YZ'
+***************************************************************************/
+
+
+
+#ifdef GCC_VECTORS
+#ifdef SHUFFLE64
+ALWAYS_INLINE static inline 
+void Hadamard_row64(mmv_fast_row64_type *r)
+{
+    static const mmv_fast_row64_type PRE_SH = {{
+       // %%TABLE [x ^ [0, 3, 3, 0][x % 4] for x in range(64)], uint8
+    }};
+    static const mmv_fast_row64_type SH0 = {{
+       // %%TABLE [x ^ 1 for x in range(64)], uint8
+    }};
+    static const mmv_fast_row64_type SH1 = {{
+       // %%TABLE [x ^ 2 for x in range(64)], uint8
+    }};
+    static const mmv_fast_row64_type SH5 = {{
+       // %%TABLE [x ^ 32 for x in range(64)], uint8
+    }};
+    static const mmv_fast_row64_type NEG_MASK0 = {{
+       // %%TABLE [255 if x % 2 else 0 for x in range(64)], uint8
+    }};
+    static const mmv_fast_row64_type NEG_MASK1 = {{
+       // %%TABLE [255 if x % 4 >= 2 else 0 for x in range(64)], uint8
+    }};
+    static const mmv_fast_row64_type NEG_MASK5 = {{
+       // %%TABLE [255 if x >= 32 else 0 for x in range(64)], uint8
+    }};
+    mmv_fast_row64_type ALIGNED(64) a, ALIGNED(64) b;
+
+    _shuffle64(*r, PRE_SH, &a);
+    _shuffle64(a, SH0, &b);
+    a.v64[0] ^=  NEG_MASK0.v64[0];
+    hadamard_row64_add_mod3(a, b, r); 
+    a.v64[0] = r->v64[0] ^ NEG_MASK1.v64[0];
+    _shuffle64(*r, SH1, &b);
+    hadamard_row64_add_mod3(a, b, r); 
+    // Do process high and low half of 64-bit vector
+    a.v64[0] = r->v64[0] ^ NEG_MASK5.v64[0];
+    _shuffle64(*r, SH5, &b);
+    hadamard_row64_add_mod3(a, b, r); 
+
+}
+
+#endif // #ifdef SHUFFLE64
+
+
+ALWAYS_INLINE static inline 
+void Hadamard_row32(mmv_fast_row32_type *r)
+{
+    static const mmv_fast_row32_type PRE_SH = {{
+       // %%TABLE [x ^ [0, 3, 3, 0][x % 4] for x in range(32)], uint8
+    }};
+    static const mmv_fast_row32_type SH0 = {{
+       // %%TABLE [x ^ 1 for x in range(32)], uint8
+    }};
+    static const mmv_fast_row32_type SH1 = {{
+       // %%TABLE [x ^ 2 for x in range(32)], uint8
+    }};
+    static const v32_8_type NEG_MASK0 = {
+       // %%TABLE [255 if x % 2 else 0 for x in range(32)], uint8
+    };
+    static const v32_8_type NEG_MASK1 = {
+       // %%TABLE [255 if x % 4 >= 2 else 0 for x in range(32)], uint8
+    };
+    mmv_fast_row32_type ALIGNED(32) a, ALIGNED(32) b;
+
+    _shuffle32(a, *r, PRE_SH);
+    _shuffle32(b, a, SH0);
+    a.v32[0] ^=  NEG_MASK0;
+    hadamard_row32_add_mod3(a, b, r);
+    a.v32[0] = r->v32[0] ^ NEG_MASK1;
+    _shuffle32(b, *r, SH1);
+    hadamard_row32_add_mod3(a, b, r);
+}
+
+
+#endif // #ifdef GCC_VECTORS
+
+
+#ifndef GCC_VECTORS
+
+ALWAYS_INLINE static inline 
+uint64_t Hadamard_row8(uint64_t r)
+{
+    uint64_t t0, t1;
+    #if ENDIANESS == 0 || ENDIANESS == 1
+    t0 = (r ^ (r >> 8)) & 0x0000FF000000FF00ULL;
+    t0 ^= t0 << 8;
+    r ^= t0;
+    #else
+    #error Function Hadamard_row8 not implemented due to unknown endianess
+    #endif
+    t0 = r ^ HI_BYTE_MASK_1_U64;  
+    t1 = exch_u64_1_byte_pairs(r);
+    add_mod_3_u64(r, t0, t1);
+    t0 = r ^ HI_BYTE_MASK_2_U64;  
+    t1 = exch_u64_2_byte_pairs(r);
+    add_mod_3_u64(r, t0, t1);
+    return r;
+}
+
+
+#endif
+
+
+
+
+/***************************************************************************
+**  Butterfly operations on rows
+***************************************************************************/
+
+
+#define Hadamard_butterfly64(r0, r1, t0, t1) \
+    t0.v64[0] = r0.v64[0]; \
+    t1.v64[0] = r1.v64[0]; \
+    hadamard_row64_add_mod3(t0, t1, &r0); \
+    t1.v64[0] = ~t1.v64[0]; \
+    hadamard_row64_add_mod3(t0, t1, &r1);
+
+#define Hadamard_butterfly32(r0, r1, t0, t1) \
+   t0 = r0; t1 = r1; \
+   hadamard_row32_add_mod3(t0, t1, &r0); \
+   t1.v32[0] = ~t1.v32[0]; \
+   hadamard_row32_add_mod3(t0, t1, &r1); \
+
+#define Hadamard_butterfly8(r0, r1, t0, t1) \
+   t0 = r0; t1 = r1; \
+   add_mod_3_u64(r0, t0, t1); \
+   t1 = ~ t1; \
+   add_mod_3_u64(r1, t0, t1);
+
+
+
+
+/***************************************************************************
+**  Operation of 'xi' on tags 'A'
+***************************************************************************/
+
+
+
+
+static void 
+op_xi_A_mod_3(mmv_fast_row32_type *pi_in, uint32_t t1, mmv_fast_row32_type *pi_out)
+{
+    //ASSUME_ALIGNED(pi_in, 32);
+    //ASSUME_ALIGNED(pi_out, 32);
+#ifdef GCC_VECTORS
+    static const v32_8_type SIGN_A = {
+        // %%TABLE [0, 255, 255, 255] * 8, uint8
+    };
+    v32_8_type s[4];
+    mmv_fast_row32_type r0, r1, r2, r3, tmp0, tmp1;
+    uint_fast32_t i, t2;
+
+    memset(s, 0, sizeof(s));
+    t2 = (t1 & 1) << 1;
+    s[t2] = SIGN_A; 
+    s[t2 + 1] = ~SIGN_A; 
+    for (i = 0; i < 6; ++i) {
+        // %%FOR j0, j1  in enumerate([0,2,1,3])
+        r%{j0}.v32[0] = pi_in[%{j1}].v32[0] ^ s[%{int:j0>0}];
+        Hadamard_row32(&r%{j0});
+        // %%END FOR
+        // %%FOR n in [1, 2]
+        // %%FOR j in [x for x in range(4) if x & n == 0]
+        Hadamard_butterfly32(r%{j}, r%{int:j+n}, tmp0, tmp1);
+        // %%END FOR 
+        // %%END FOR 
+        // %%FOR* j in range(4)
+        pi_out[%{j}].v32[0] = r%{j}.v32[0] ^ s[%{int:2 + (j > 0)}];
+        // %%END FOR
+        pi_in += 4; 
+        pi_out += 4; 
+    }
+#else
+    static const union {
+        uint8_t b[8];
+        uint64_t u64[1];
+    } SIGN_A = {{
+        // %%TABLE [0, 255, 255, 255] * 2, uint8
+    }};
+    uint64_t s[4];
+    uint64_t r0, r1, r2, r3, tmp0, tmp1;
+    uint64_t *p_in = pi_in[0].u64,  *p_out = pi_out[0].u64;
+    uint_fast32_t i, k, t2;
+
+    memset(s, 0, sizeof(s));
+    t2 = (t1 & 1) << 1;
+    s[t2] = SIGN_A.u64[0]; 
+    s[t2 + 1] = ~SIGN_A.u64[0]; 
+    for (i = 0; i < 6; ++i) {
+        for (k = 0; k < 3; ++k) {
+            // %%FOR j0, j1  in enumerate([0,2,1,3])
+            r%{j0} = p_in[%{int:4*j1}] ^ s[%{int:j0>0}];
+            r%{j0} = Hadamard_row8(r%{j0});
+            // %%END FOR
+            // %%FOR n in [1, 2]
+            // %%FOR j in [x for x in range(4) if x & n == 0]
+            Hadamard_butterfly8(r%{j}, r%{int:j+n}, tmp0, tmp1);
+            // %%END FOR 
+            // %%END FOR 
+            // %%FOR* j in range(4)
+            p_out[%{int:4*j}] = r%{j} ^ s[%{int:2 + (j > 0)}];
+            // %%END FOR
+            p_in += 1; 
+            p_out += 1; 
+        }
+        p_in += 13; 
+        p_out += 13; 
+    }
+#endif
+}
+
+/***************************************************************************
+**  Exported operation of 'xi' on tags 'A'
+***************************************************************************/
+
+// %%EXPORT p
+void mm_op_fast_op_xi_A_mod_3(mmv_fast_row32_type *pi, uint32_t xi)
+{
+    if ((xi - 1) & 2) return;
+    xi = ((xi & 3) - 1) ^ ((xi >> 31) & 1);
+    op_xi_A_mod_3(pi, xi, pi);
+}
+
+
+/***************************************************************************
+**  Operation of 'xi' on tags 'YZ'
+***************************************************************************/
+
+
+// Entries 2, 3, 6, 7 of the following table have an implied
+// negation to execute multiplication with 1/8 = -1 (mod 3)
+// %%WITH t = [[0]*32, [255]*32, [255,0,0,0]*8, [0,255,255,255]*8] 
+// %%WITH T = [t[2],t[2],t[1],t[0], t[0],t[1],t[3],t[3]]
+#ifdef GCC_VECTORS
+static const v32_8_type SIGN_YZ_TAB[8] = {
+   // %%TABLE T, uint8
+};
+#else
+static const union {
+    uint8_t b[8][8];
+    uint64_t u64[8];
+} SIGN_YZ_TAB = {{
+     // %%TABLE [x[:8] for x in T], uint8
+}};
+
+#endif // #ifdef GCC_VECTORS
+// %%END WITH 
+// %%END WITH 
+
+
+// %%WITH S = [0, 7, 11, 13, 14, 15]
+// %%WITH SE = [0, 1, 2, 4, 8, 15]
+// %%WITH P = [0, 3, 5, 6, 9, 10, 12, 15]
+
+
+ALWAYS_INLINE static inline void 
+op_xi_YZ_Hadamard_mod3(mmv_fast_row32_type *v, uint32_t e1, mmv_fast_row32_type *v_out)
+{
+    // ASSUME_ALIGNED(v, 32);
+    // ASSUME_ALIGNED(v_out, 32);
+#ifdef GCC_VECTORS
+  #ifdef SHUFFLE64
+    mmv_fast_row64_type r0, r1, r2, r3, r4, r5, r6, r7;
+    mmv_fast_row64_type tmp0, tmp1;
+    const v32_8_type *s = SIGN_YZ_TAB + ((e1 & 1) << 2);
+    mmv_fast_row32_type h0, h1;
+
+    // %%FOR* i in range(0, 16, 2)
+    h0.v32[0] = v[%{int:i if i in P else 15-i}].v32[0] ^ s[%{int:i in S}]; 
+    h1.v32[0] = v[%{int:i+1 if i+1 in P else 14-i}].v32[0] ^ s[%{int:i+1 in S}];
+    mmv_merge_rows32_row64(h0, h1, &r%{int:i>>1});
+    Hadamard_row64(&r%{int:i>>1});
+    // %%END FOR 
+    // %%FOR n in [1, 2, 4]
+    // %%FOR i in [x for x in range(8) if x & n == 0]
+    Hadamard_butterfly64(r%{i}, r%{int:i+n}, tmp0, tmp1);
+    // %%END FOR 
+    // %%END FOR 
+    // %%FOR* i in range(8)
+    mmv_split_row64_rows32(r%{i}, &h0, &h1);
+    v_out[%{int:2*i}].v32[0] = h0.v32[0] ^ s[%{int:2 + (2*i in SE)}];
+    v_out[%{int:2*i+1}].v32[0] = h1.v32[0] ^ s[%{int:2 + (2*i+1 in SE)}];
+    // %%END FOR
+  #else
+    mmv_fast_row32_type r0, r1, r2, r3, r4, r5, r6, r7;
+    mmv_fast_row32_type r8, r9, r10, r11, r12, r13, r14, r15;
+    mmv_fast_row32_type tmp0, tmp1;
+    const v32_8_type *s = SIGN_YZ_TAB + ((e1 & 1) << 2);
+  
+    // %%FOR* i in range(16)
+    r%{i}.v32[0] = v[%{int:i if i in P else 15-i}].v32[0] ^ s[%{int:i in S}]; 
+    Hadamard_row32(&r%{i});
+    // %%END FOR 
+    // %%FOR n in [1, 2, 4, 8]
+    // %%FOR i in [x for x in range(16) if x & n == 0]
+    Hadamard_butterfly32(r%{i}, r%{int:i+n}, tmp0, tmp1);
+    // %%END FOR 
+    // %%END FOR 
+    // %%FOR* i in range(16)
+    v_out[%{i}].v32[0] = r%{i}.v32[0] ^ s[%{int:2 + (i in SE)}];
+    // %%END FOR
+  #endif
+#else
+    const uint64_t *s = SIGN_YZ_TAB.u64 + ((e1 & 1) << 2);
+    uint_fast32_t k;
+    for (k = 0; k < 3; ++k) {
+        uint64_t r0, r1, r2, r3, r4, r5, r6, r7;
+        uint64_t r8, r9, r10, r11, r12, r13, r14, r15;
+        uint64_t tmp0, tmp1;
+        uint64_t *p_in = v->u64 + k, *p_out = v_out->u64 + k;
+
+        // %%FOR* i in range(16)
+        r%{i} = p_in[%{int:4*i if i in P else 60-4*i}] ^ s[%{int:i in S}]; 
+        r%{i} = Hadamard_row8(r%{i});
+        // %%END FOR 
+        // %%FOR n in [1, 2, 4, 8]
+        // %%FOR i in [x for x in range(16) if x & n == 0]
+        Hadamard_butterfly8(r%{i}, r%{int:i+n}, tmp0, tmp1);
+        // %%END FOR 
+        // %%END FOR 
+        // %%FOR* i in range(16)
+        p_out[%{int:4*i}] = r%{i} ^ s[%{int:2 + (i in SE)}];
+        // %%END FOR
+    }
+#endif
+}
+
+// %%END WITH 
+// %%END WITH 
+// %%END WITH 
+
+
+
+static uint8_t TAB255_XI64_OFFSET[2][4] = {
+    {2, 0, 1, 3}, {1, 2, 0, 3}
+};
+
+
+
+static inline void 
+op_xi_YZ_mod_3(mmv_fast_row32_type *pi_in, uint32_t t1, mmv_fast_row32_type *pi_out)
+{
+    ASSUME_ALIGNED(pi_in, 64);
+    ASSUME_ALIGNED(pi_out, 64);
+    uint32_t i, j, d;
+    for (i = 0; i < 4096; i += 1024) {
+        d = (uint32_t)(TAB255_XI64_OFFSET[t1][i >> 10]) << 10;
+        for (j = 0; j < 1024; j += 16) {
+            op_xi_YZ_Hadamard_mod3(pi_in + i + j, t1, pi_out + d + j);
+        } 
+    }  
+}
+
+
+
+
+
+/***************************************************************************
+** Functions performing the permutation on a vector of bytes
+***************************************************************************/
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+static int32_t mm_op_fast_op_xi_mma0(
+    uint32_t p, uint32_t xi, mmv_fast_type *p_in, mmv_fast_type *p_out
+)
+{
+    ASSUME_ALIGNED(p_in, 64);
+    ASSUME_ALIGNED(p_out, 64);
+    uint32_t xi1;
+    mmv_fast_row32_type *pi_in, *pi_out;
+
+    xi &= 3;
+    if ((xi - 1) & 2) {
+        memcpy(p_out, p_in, sizeof(mmv_fast_type));
+        return 0;
+    } 
+    xi1 = xi - 1;
+
+    // Do tag 'A' here
+    pi_in = (mmv_fast_row32_type *)p_in;
+    pi_out = (mmv_fast_row32_type *)p_out;
+    switch (p) {
+        case 3:
+            op_xi_A_mod_3(pi_in, xi1, pi_out);
+            break;
+        default:
+           return -1;  
+    }
+
+    // Do monomial part here here
+    mm_op_fast_xi_monomial(pi_in, xi1, pi_out);
+
+    // Do tags 'YZ' here
+    pi_in = (mmv_fast_row32_type *)(p_in) + MM_AUX_OFS_Z/32;
+    pi_out = (mmv_fast_row32_type *)(p_out) + MM_AUX_OFS_Z/32;
+    switch (p) {
+        case 3:
+            op_xi_YZ_mod_3(pi_in, xi1, pi_out);
+            break;
+        default:
+            return -1;  
+    }
+    return 0;
+}
+
+/// @endcond
+
+
+/***************************************************************************
+** Main function performing the permutation on a vector
+***************************************************************************/
+
+
+
+// %%EXPORT p
+int32_t mm_op_fast_op_xi(mmv_fast_matrix_type *pm, uint32_t xi)
+{
+    uint32_t cur = pm->current &= 1;
+    switch (pm->mode) {
+        case 1:
+            {
+                mmv_fast_type *p_in = pm->p_v.p_vb[cur];  
+                mmv_fast_type *p_out = pm->p_v.p_vb[cur ^ 1];  
+                xi &= 3;
+                if ((xi - 1) & 2) return 0;
+                pm->current = cur ^ 1;  
+                return mm_op_fast_op_xi_mma0(pm->p, xi, p_in, p_out);
+            }
+        default:
+            return -1;   
+    }
+    return 0;
+}
+
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

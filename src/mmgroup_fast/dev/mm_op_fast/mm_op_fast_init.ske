@@ -1,0 +1,339 @@
+#define MM_OP_FAST_ALLOC
+#include "mm_op_fast.h"
+#include "mm_op_sub.h"   
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT 
+//  %%GEN c
+
+
+
+
+
+// %%EXPORT p
+int32_t mm_op_fast_init(mmv_fast_matrix_type *pm, uint32_t p, uint32_t nrows, uint32_t mode)
+{
+     // int32_t status;
+     
+     memset(pm, 0, sizeof(mmv_fast_matrix_type));
+     switch (mode) {
+         case 0:
+             return 0;
+         case 1:
+             {
+                 mmv_fast_type **p_buf = pm->p_v.p_vb;
+                 if (p != 3 ||  nrows > 4) return -1;
+                 p_buf[0] = (mmv_fast_type*)_my_aligned_alloc(
+                     sizeof(mmv_fast_type), 64);
+                 if (p_buf[0] == NULL) return -1;
+                 memset(p_buf[0], 0, sizeof(mmv_fast_type));
+                 p_buf[1] = NULL;
+                 pm->mode = 1;
+                 pm->p = p;
+                 pm->nrows = nrows;
+                 return 0;
+             }
+         default:
+             return -1;
+     }
+}
+
+
+
+
+// %%EXPORT p
+int32_t mm_op_fast_alloc(mmv_fast_matrix_type *pm, uint32_t alloc_work)
+{
+     //int32_t status;
+     
+     switch (pm->mode) {
+         case 1:
+             {
+                 mmv_fast_type **p_buf = pm->p_v.p_vb;
+                 if (p_buf[0] == NULL) {
+                     p_buf[0] = (mmv_fast_type*)_my_aligned_alloc(
+                         sizeof(mmv_fast_type), 64);
+                     if (p_buf[0] == NULL) return -1;
+                     memset(p_buf[0], 0, sizeof(mmv_fast_type));
+                 }
+                 if (p_buf[1] == NULL && alloc_work) {
+                     p_buf[1] = (mmv_fast_type*)_my_aligned_alloc(
+                         sizeof(mmv_fast_type), 64);
+                     if (p_buf[1] == NULL) return -1;
+                     memset(p_buf[1], 0, sizeof(mmv_fast_type));
+                 }
+                 return 0;
+             }
+         default:
+             return -1;
+     }
+}
+
+
+
+// %%EXPORT p
+int32_t mm_op_fast_normalize(mmv_fast_matrix_type *pm, uint32_t normalize_data)
+{
+     if (pm->current & 1) switch (pm->mode) {
+         case 1:
+             {
+                 mmv_fast_type **p_buf = pm->p_v.p_vb;
+                 memcpy(p_buf[0], p_buf[1], sizeof(mmv_fast_type));
+             }
+             break;
+         default:
+             return -1;
+     }
+     pm->current = 0;
+
+     if (normalize_data) {
+         return -1;
+     } 
+     return 0;
+}
+
+
+
+// %%EXPORT p
+int32_t mm_op_fast_dealloc(mmv_fast_matrix_type *pm, uint32_t work_only)
+{
+     // int32_t status;
+     
+     if (work_only && mm_op_fast_normalize(pm, 0)) return -1;
+     switch (pm->mode) {
+         case 1:
+             {
+                 mmv_fast_type **p_buf = pm->p_v.p_vb;
+                 if (p_buf[1] != NULL) {
+                     _my_aligned_free(p_buf[1]);
+                     p_buf[1] = NULL;
+                 }
+                 if (p_buf[0] == NULL && !work_only) {
+                     _my_aligned_free(p_buf[0]);
+                     p_buf[0] = NULL;
+                 }
+                 return 0;
+             }
+             break;
+         default:
+             return -1;
+     }
+}
+
+
+/**
+   @brief copy data to an existing matrix of type mmv_fast_matrix_type
+
+   The function copies data from matrix ``pm_src`` to the 
+   matrix ``pm_dest``. Both matrices must be of the same type and shape.
+*/
+// %%EXPORT p
+int32_t mm_op_fast_copy_data(mmv_fast_matrix_type *pm_src, mmv_fast_matrix_type *pm_dest)
+{
+     if (pm_src == NULL || pm_dest == NULL) return -1;
+     if (pm_src->mode != pm_dest->mode || pm_src->p != pm_dest->p)
+           return -1;
+     
+     switch (pm_src->mode) {
+         case 1:
+             {
+                 pm_dest->nrows = pm_src->nrows;
+                 pm_dest->current = 0;
+                 mmv_fast_type **psrc_buf = pm_src->p_v.p_vb;
+                 mmv_fast_type *psrc = psrc_buf[pm_src->current & 1];
+                 mmv_fast_type **pdest_buf = pm_dest->p_v.p_vb;
+                 mmv_fast_type *pdest = pdest_buf[0];
+                 if (psrc == NULL) {
+                     if (pdest != NULL) 
+                         memset(pdest, 0, sizeof(mmv_fast_type));
+                 } else {
+                     if (pdest == NULL) {
+                         int32_t status = mm_op_fast_alloc(pm_dest, 0);
+                         if (status < 0) return status;
+                         pdest = pdest_buf[0];
+                         if (pdest == NULL) return -1;
+                     } 
+                     memcpy(pdest, psrc, sizeof(mmv_fast_type));
+                 }
+                 return 0;
+             }
+         default:
+             return -1;
+     }
+}
+
+
+
+
+// %%EXPORT p
+uint8_t* mm_op_fast_raw_vb_data(mmv_fast_matrix_type *pm, uint32_t *p_len)
+{
+     uint32_t len = 0;
+     uint8_t *p_data = NULL;
+     if (mm_op_fast_normalize(pm, 0) == 0)  switch (pm->mode) {
+         case 1:
+             {
+                 mmv_fast_type **p_buf = pm->p_v.p_vb;
+                 len = sizeof(mmv_fast_type);
+                 p_data = (uint8_t*)(p_buf[0]);
+             }
+             break;
+        default:
+             break;
+      }
+      if (p_len != NULL) *p_len = (p_data = NULL) ? 0  : len;
+      return p_data;
+}
+
+
+/** 
+  @brief Return pointer to data of structure of type mmv_fast_matrix_type
+
+  Return a pointer to the data bytes in a structure of 
+  type ``mmv_fast_matrix_type`` referred by ``pm`` if ``pm->mode``
+  is equal to 1, and data are present. Return NULL otherwise.
+*/
+static uint8_t* ptr_data_mode1(mmv_fast_matrix_type *pm)
+{
+     if (pm == NULL) return NULL;
+     if (pm->mode == 1) {
+         mmv_fast_type **p_buf = pm->p_v.p_vb;
+         mmv_fast_type *p_data = p_buf[pm->current & 1];
+         if (p_data == NULL) return NULL;
+         return p_data->b; 
+     } 
+     return NULL;
+}
+
+/** 
+  @brief Store data to a structure of type mmv_fast_matrix_type
+
+  The function stores data to a structure ``a`` of
+  type ``mmv_fast_matrix_type`` referred by ``pa``. The data to be
+  stored are given by the array ``data`` of length ``len``.
+
+  Each entry ``x`` of that array describes an column in the 
+  structure ``a`` to  be modified. Bits 31,...,8 of an entry contain
+  the index ``j`` of the column to be modified in 'sparse'
+  representation. Bits 7,...,0 contain the data to be stored at this
+  entry. We store the value ``(x >> (2 * k)) & 3`` in row ``k``
+  and column ``j`` of the structure ``a`` for ``0 <= k < 4``. 
+
+  Illegal indices are ignored. The function performs no action
+  if ``a->mode != 1``, or if no data are allocated for ``a``.
+
+  The function returns 0 if all data have been stored successfully
+  and -1 otherwise. The function fails if ``a->mode != 1``.
+*/
+// %%EXPORT p
+int32_t mm_op_fast_mode1_put(mmv_fast_matrix_type *pm, uint32_t *data, uint32_t len)
+{
+    uint32_t i;
+    int32_t v1, v2, status = 0;
+    uint8_t *pb = ptr_data_mode1(pm), b;
+    if (pb == NULL) return -1;
+    for (i = 0; i < len; ++i) {
+        v1 = mm_aux_index_sparse_to_intern(data[i] & 0xffffff00UL);
+        if (v1 >= 0) {
+            b = (uint8_t)(data[i] & 0xff); 
+            pb[v1] = b;
+            v2 = mm_aux_index_check_intern(v1);
+            if (v2 > 0) pb[v2] = b;
+        } else status = -1;
+    }
+    return status;
+}
+
+
+/** 
+  @brief Load data from structure of type mmv_fast_matrix_type
+
+  The function loads data from a structure ``a`` of
+  type ``mmv_fast_matrix_type`` referred by ``pa``. The data are
+  stored to an array ``data`` of length ``len``.
+
+  Each entry ``x`` of array ``data`` describes a column in the 
+  structure ``a`` to  be loaded. Bits 31,...,8 of an entry contain
+  the index ``j`` of the column to be loaded in 'sparse'
+  representation. Bits 7,...,0 of entry ``data`` are modified so
+  that will contain the data read frm the array. We store the
+  value of row ``j`` and column ``k``  the structure ``a`` in the
+  bits ``(2*i+1, 2*i)`` of that entry for ``0 <= k < 4``. These
+  stored values are reduced modulo 3.
+
+  Bit 7,...,0  of an entry of array ``data`` are set to zero if the
+  corresponding entries of ``a``are not present.
+  
+  .
+  The function returns 0 if all data have been loaded successfully
+  and -1 otherwise. The function fails if ``a->mode != 1``.
+*/
+// %%EXPORT p
+int32_t mm_op_fast_mode1_get(mmv_fast_matrix_type *pm, uint32_t *data, uint32_t len)
+{
+    uint32_t i;
+    int32_t v1, status = 0;
+    uint8_t *pb = ptr_data_mode1(pm), b, tmp;
+    if (pb == NULL) {
+        for (i = 0; i < len; ++len) data[i] |= 0xffUL; 
+        return -1;
+    }
+    for (i = 0; i < len; ++i) {
+        data[i] &= 0xffffff00UL;  
+        v1 = mm_aux_index_sparse_to_intern(data[i]);
+        if (v1 >= 0) {
+            b = pb[v1];
+            tmp = (b ^ (b >> 1)) & 0x55;
+            b ^= tmp ^ (tmp << 1);
+            data[i] |= b;
+        }
+        else {
+            status = -1;
+            data[i] |= 0xffUL; 
+        }
+    }
+    return status;
+}
+
+
+/** 
+  @brief Store zero to structure of type mmv_fast_matrix_type
+
+  The function stores zero to a structure ``a`` of
+  type ``mmv_fast_matrix_type`` referred by ``pa``. It performs
+  no action if ``a->mode != 1``.
+*/
+// %%EXPORT p
+void mm_op_fast_mode1_zero(mmv_fast_matrix_type *pm)
+{
+    if (pm->mode == 1) {
+        mmv_fast_type **p_buf = pm->p_v.p_vb;
+        v32_8_type *v32 = (p_buf[pm->current & 1])->v32;
+        memset(v32, 0, MM_FAST_BYTELENGTH * sizeof(uint8_t)); 
+    } 
+}
+
+
+/** 
+  @brief An extremely dangerous low-level function!
+
+  Not for public use!!!!
+*/
+// %%EXPORT p
+void mm_op_fast_mode1_poke(mmv_fast_matrix_type *pm, uint32_t index, uint32_t value)
+{
+    uint8_t *pb = ptr_data_mode1(pm);
+    if (pb == NULL) return;
+    if (index >= MM_FAST_BYTELENGTH) return;
+    pb[index] = (uint8_t)(value & 0xff);
+}
+
+
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

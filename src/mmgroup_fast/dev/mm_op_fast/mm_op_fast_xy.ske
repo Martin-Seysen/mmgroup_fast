@@ -1,0 +1,868 @@
+#define MM_OP_FAST_PERMUTATIONS
+#include <stdlib.h>
+#include <stdio.h>
+#include "mm_op_fast.h"
+#include "mat24_functions.h"
+
+
+
+
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT 
+//  %%GEN c
+
+
+
+
+
+
+
+/***************************************************************************
+** Function for preparing the operation y_f x_e x_eps of tags X, Z, Y
+***************************************************************************/
+
+static uint16_t ker_table_yx[4] = {0, 0x1000, 0x1800, 0x800};
+
+
+
+/**
+  @brief Compute information for operation \f$y_f x_e x_\epsilon\f$
+  
+  Given an element  \f$y_f x_e x_\epsilon\f$ of the monster by 
+  parameters ``f``, ``e``, and ``eps``, the function computes the
+  relevant data for performing that operation on the representation
+  of the monster. These data are stored in the structure of
+  type ``mm_sub_op_xy_type`` referred by parameter ``p_op``.
+
+  Caution!
+
+  Component ``p_signs`` must refer to an array of type ``uint16_t``
+  of length 2048.
+*/
+// %%EXPORT 
+void mmv_fast_prep_xy(uint32_t f, uint32_t e, uint32_t eps, uint16_t *p_signs, mmv_fast_op_xy_type *p_op)
+// buffer referred by p_autpl_X must have size 2048
+{
+    ASSUME_ALIGNED(p_op, 32);
+    ALIGNED(16) union {
+        uint16_t w[8];
+        uint64_t u64[2]; 
+        v8_16_type v8;
+    } buf, buf1, buf2, buf_e, buf_f, buf_abs_eps; 
+
+    uint_fast32_t sX, sZ, sY, linXT, linZ, linY, sigma, ve, vf;
+    uint_fast32_t i;
+
+    // Store input in output structure
+    e ^= ker_table_yx[(f >> 11) & 3];
+    p_op->f = f = f & 0x7ff; 
+    p_op->e = e = e & 0x1fff;
+    p_op->eps = eps = eps & 0xfff;
+    p_op->p_signs = p_signs;
+   
+    // Set constant part and linear factor for signs in p_op->p_signs.
+    sigma =  0 - ((eps >> 11) & 1); 
+    sX = (MAT24_THETA_TABLE[f] >> 12) & 1;
+    linXT = eps ^ MAT24_THETA_TABLE[e & 0x7ff];
+
+    sZ = ((e >> 12) + ((e >> 11) & sigma)) & 1;
+    sZ ^= f & MAT24_THETA_TABLE[e & 0x7ff];
+    sZ ^= e & MAT24_THETA_TABLE[f] & sigma;
+    sZ ^= ((MAT24_THETA_TABLE[f] >> 12) & 1) & ~sigma;
+    sZ &= 0xfff;
+    sZ ^= sZ >> 6;
+    sZ ^= sZ >> 3;    
+    sZ = (0x96 >> (sZ & 7)) & 1;
+    linZ = eps ^ MAT24_THETA_TABLE[(e ^ f) & 0x7ff]
+         ^ (~sigma & MAT24_THETA_TABLE[f]);
+    
+    sigma = ~sigma;
+    sY = ((e >> 12) + ((e >> 11) & sigma)) & 1;
+    sY ^= f & MAT24_THETA_TABLE[e & 0x7ff];
+    sY ^= e & MAT24_THETA_TABLE[f] & sigma;
+    sY ^= ((MAT24_THETA_TABLE[f] >> 12) & 1) & ~sigma;
+    sY = mat24_def_parity12(sY);
+    sY &= 0xfff;
+    sY ^= sY >> 6;
+    sY ^= sY >> 3;    
+    sY = (0x96 >> (sY & 7)) & 1;
+    linY = eps ^ MAT24_THETA_TABLE[(e ^ f) & 0x7ff]
+         ^ (~sigma & MAT24_THETA_TABLE[f]);
+    sigma = ~sigma;
+    
+
+    // Set linear part and linear factor for signs in op.p_signs.
+    p_signs[0] = (sY << 2) ^ (sZ << 1) ^ sX; 
+    for (i = 0; i < 3; ++i) {
+        uint_fast32_t i_pwr = 1 << i, j, diff;
+        diff = (linXT >> i) & 1;
+        diff ^= diff << 6;
+        diff ^= ((linZ >> i) & 1) << 1;
+        diff ^= ((linY >> i) & 1) << 2;
+        for (j = 0; j < i_pwr; ++j) {
+            p_signs[j + i_pwr] = (uint16_t)(p_signs[j] ^ diff);
+        }
+    }
+
+    for (i = 3; i < 11; ++i) {
+        uint_fast32_t i_pwr = 1 << i, j, diff;
+        diff = (linXT >> i) & 1;
+        diff ^= diff << 6;
+        diff ^= ((linZ >> i) & 1) << 1;
+        diff ^= ((linY >> i) & 1) << 2;
+        for (j = 0; j < 8; ++j) buf1.w[j] = diff;
+        for (j = 0; j < i_pwr; j += 8) {
+            memcpy(&buf, p_signs + j, sizeof(buf));
+            #ifdef GCC_VECTORS
+              buf.v8 ^= buf1.v8;
+            #else
+              buf.u64[0] ^= buf1.u64[0];
+              buf.u64[1] ^= buf1.u64[1];
+            #endif
+            memcpy(p_signs + j + i_pwr, &buf, sizeof(buf));
+        }
+    }
+
+    // Set offset p_op->lin_d of part d of X_d, y_d, Z_d.
+    p_op->lin_d[0] = f & 0x7ff;
+    p_op->lin_d[1] = (e ^ (f & ~sigma)) & 0x7ff;
+    p_op->lin_d[2] = (e ^ (f & sigma)) & 0x7ff;
+
+    // Set part of the signs depending on theta(d).
+    for (i = 0; i < 8; ++i) {
+        buf_e.w[i] = (uint16_t)e; 
+        buf_f.w[i] = (uint16_t)f; 
+        buf_abs_eps.w[i] = (uint16_t)((eps >> 11) & 1);
+    }
+
+    for (i = 0; i < 0x800 ; i += 8) {
+        memcpy(&buf, MAT24_THETA_TABLE + i, sizeof(buf));
+        #ifdef GCC_VECTORS
+          buf1.v8 = buf.v8 & buf_f.v8;
+          buf1.v8 = (buf1.v8 ^ (buf1.v8 >> 6)) & (uint16_t)0x3f; 
+          buf2.v8 = (buf.v8 & buf_e.v8);
+          buf2.v8 = (buf2.v8 ^ (buf2.v8 << 6)) & (uint16_t)0xfc0; 
+          buf1.v8 |= buf2.v8;
+          buf1.v8 ^= buf1.v8 >> 3;
+          buf1.v8 &= 65*7;
+          buf1.v8 ^= buf1.v8 >> 2;
+          buf1.v8 ^= buf1.v8 >> 1;
+          // Now (<e\theta(d)>, <f\theta(d)>) in buf1, bit (6, 0)
+          buf.v8 >>= 12;
+          buf.v8 &= buf_abs_eps.v8; // P(d) & |eps| in bit 0
+          buf2.v8 = buf1.v8 & 1;   // Bit (<f\theta(d)> in bit 0
+          buf.v8 ^= (buf2.v8 << 3) - buf2.v8; 
+          // Now <f\theta(d)> is in bit 2 and 1 of buf;
+          // and <f\theta(d)> ^ (P(d) & |eps|) is in bit 0 of buf.
+          buf1.v8 &= 0x40;             // Bit (<e\theta(d)> in bit 0
+          buf.v8 ^= buf1.v8 ^ (buf1.v8 >> 6);  
+          // Now <e\theta(d)> is in bit 6 of buf;
+          // and <ef\theta(d)> ^ (P(d) & |eps|) is in bit 0 of buf.
+          memcpy(&buf1, p_signs + i, sizeof(buf1));
+          buf1.v8 ^= buf.v8;
+          memcpy(p_signs + i, &buf1,  sizeof(buf1));
+        #else
+          // %%FOR* j in [0,1]
+          buf1.u64[%{j}] = buf.u64[%{j}] & buf_f.u64[%{j}];
+          buf1.u64[%{j}] = (buf1.u64[%{j}] ^ (buf1.u64[%{j}] >> 6)) &
+              0x003f003f003f003fULL; 
+          buf2.u64[%{j}] = (buf.u64[%{j}] & buf_e.u64[%{j}]);
+          buf2.u64[%{j}] = (buf2.u64[%{j}] ^ (buf2.u64[%{j}] << 6)) &
+              0x0fc00fc00fc00fc0ULL;  
+          buf1.u64[%{j}] |= buf2.u64[%{j}];
+          buf1.u64[%{j}] ^= buf1.u64[%{j}] >> 3;
+          buf1.u64[%{j}] &= 0x01c701c701c701c7ULL;
+          buf1.u64[%{j}] ^= buf1.u64[%{j}] >> 2;
+          buf1.u64[%{j}] ^= buf1.u64[%{j}] >> 1;
+          // %%END FOR
+          // Now (<e\theta(d)>, <f\theta(d)>) in buf1, bit (6, 0)
+          // %%FOR* j in [0,1]
+          buf.u64[%{j}] >>= 12;
+          buf.u64[%{j}] &= buf_abs_eps.u64[%{j}]; // P(d) & |eps| in bit 0
+          buf2.u64[%{j}] = buf1.u64[%{j}] &  0x0001000100010001ULL;
+          buf.u64[%{j}] ^= (buf2.u64[%{j}] << 3) - buf2.u64[%{j}]; 
+          // %%END FOR
+          // Now <f\theta(d)> is in bit 2 and 1 of buf;
+          // and <f\theta(d)> ^ (P(d) & |eps|) is in bit 0 of buf.
+          buf1.u64[0] &= 0x0040004000400040ULL; 
+          buf.u64[0] ^= buf1.u64[0] ^ (buf1.u64[0] >> 6);  
+          buf1.u64[1] &= 0x0040004000400040ULL; 
+          buf.u64[1] ^= buf1.u64[1] ^ (buf1.u64[1] >> 6);  
+          // Now <e\theta(d)> is in bit 6 of buf;
+          // and <ef\theta(d)> ^ (P(d) & |eps|) is in bit 0 of buf.
+          memcpy(&buf1, p_signs + i, sizeof(buf1));
+          buf1.u64[0] ^= buf.u64[0];
+          buf1.u64[1] ^= buf.u64[1];
+          memcpy(p_signs + i, &buf1, sizeof(buf1));
+        #endif
+    }
+
+    // Compute (e,i), (f,i), (ef,i)
+    ve = mat24_gcode_to_vect(e);
+    p_op->vf = vf = mat24_gcode_to_vect(f);
+    p_op->vef = ve ^ vf;
+    for (i = 0; i < 24; ++i) {
+        p_op->e_i.b[i] = (uint8_t)(0 - ((ve >> i) & 1));
+        p_op->f_i.b[i] = (uint8_t)(0 - ((vf >> i) & 1));
+        p_op->ef_i.b[i] = p_op->e_i.b[i] ^ p_op->f_i.b[i];
+    } 
+    for (i = 24; i < 32; ++i) p_op->ef_i.b[i] = p_op->e_i.b[i] = p_op->f_i.b[i] = 0;
+
+    // Set pointers p_op->p_lin_i to sign depending on i for X_d, Z_d, Y_d
+    p_op->p_lin_i[0] = &(p_op->e_i);
+    p_op->p_lin_i[1] = &(p_op->f_i);
+    p_op->p_lin_i[2] = &(p_op->f_i);
+    p_op->p_lin_i[3] = &(p_op->ef_i);
+}
+
+
+/***************************************************************************
+** Simplified version of last functions; for central e, f in Parker loop
+***************************************************************************/
+
+// output bits 0,1,2 as in function mmv_fast_prep_xy
+// output bit 3 is for tag T
+// Caution: have to add scalar product <e, i> to bit 0!!
+static 
+int32_t mmv_fast_prep_xy_simple(uint32_t f, uint32_t e, uint32_t eps, uint16_t *p_signs)
+{
+    union ALIGNED(16) {
+        uint16_t w[8];
+        uint64_t u64[2]; 
+        v8_16_type v8;
+    } buf, buf1; 
+    uint_fast32_t i, sigma, sX, sY, sZ;
+
+    if ((e | f) & 0x7ff) return -1;
+    e ^= ker_table_yx[(f >> 11) & 3];
+
+    sX = (e >> 11) & 1;
+    sigma =  (eps >> 11) & 1; 
+    sZ = ((e >> 12) + ((e >> 11) & sigma)) & 1;
+    sigma ^= 1;
+    sY = ((e >> 12) + ((e >> 11) & sigma)) & 1;
+    p_signs[0] = sX ^ (sZ << 1) ^ (sY << 2);
+
+    for (i = 0; i < 3; ++i) {
+        uint_fast32_t i_pwr = 1 << i, j, diff = 15 * ((eps >> i) & 1);
+        for (j = 0; j < i_pwr; ++j) {
+            p_signs[j + i_pwr] = (uint8_t)(p_signs[j] ^ diff);
+        }
+    }
+
+    for (i = 3; i < 11; ++i) {
+        uint_fast32_t i_pwr = 1 << i, j, diff = 15 * ((eps >> i) & 1);
+        for (j = 0; j < 8; ++j) buf1.w[j] = (uint8_t)diff;
+        for (j = 0; j < i_pwr; j += 8) {
+            memcpy(&buf, p_signs + j, sizeof(buf));
+            #ifdef GCC_VECTORS
+              buf.v8 ^= buf1.v8;
+            #else
+              buf.u64[0] ^= buf1.u64[0];
+              buf.u64[1] ^= buf1.u64[1];
+            #endif
+            memcpy(p_signs + j + i_pwr, &buf, sizeof(buf));
+        }
+    }
+
+    if (eps & 0x800) for (i = 0; i < 0x800 ; i += 8) {
+        memcpy(&buf, MAT24_THETA_TABLE + i, sizeof(buf));
+        memcpy(&buf1, p_signs + i, sizeof(buf1));
+        #ifdef GCC_VECTORS
+          buf.v8 >>= 12;
+          buf.v8 &= 1; // P(d) & |eps| in bit 0
+          buf1.v8 ^= buf.v8;
+        #else
+          // %%FOR* j in [0,1]
+          buf.u64[%{j}] >>= 12;
+          buf.u64[%{j}] &=  0x0001000100010001ULL;
+          buf1.u64[%{j}] ^= buf.u64[%{j}];  
+          // %%END FOR
+        #endif
+        memcpy(p_signs + i, &buf1, sizeof(buf1));
+    }
+
+    return 0;
+}
+
+
+
+/***************************************************************************
+** Functions for preparing the operation y_f  x_e  x_eps on tag T
+***************************************************************************/
+
+    
+// Compute interssection of vector ``v`` in ``{0,1}^24`` and the
+// octad referred by the pointer ``po`` to an antry of the
+// octad table ``MAT24_OCTAD_ELEMENT_TABLE``. Return the
+// result as a 6-bit number denoting a suboctad.
+#define to_suboctad(v, po) \
+    ((v >> po[1]) & 1) ^ (((v >> po[2]) & 1) << 1) \
+    ^ (((v >> po[3]) & 1) << 2) ^ (((v >> po[4]) & 1) << 3) \
+    ^ (((v >> po[5]) & 1) << 4) ^ (((v >> po[6]) & 1) << 5) \
+    ^ ((0 - ((v >> po[7]) & 1)) & 63)
+
+
+
+
+
+
+// buffer p_out must have size 759*2
+// %%EXPORT
+void mmv_fast_prep_xy_64(mmv_fast_op_xy_type *p_op, uint8_t *p_out)
+{
+   ASSUME_ALIGNED(p_op, 32);
+   uint_fast32_t i;
+   uint_fast32_t vf = p_op->vf, vef = p_op->vef, dest, signs;
+   uint_fast32_t eps = p_op->eps & 0x800;
+   uint_fast32_t eps_sh = eps >> (11 - 7);
+   const uint8_t* p_oct = MAT24_OCTAD_ELEMENT_TABLE;
+   for (i = 0; i < 759; ++i) {
+       *p_out++ = (uint8_t)(to_suboctad(vf, p_oct));
+       signs = to_suboctad(vef, p_oct);
+       dest = mat24_def_octad_to_gcode(i);
+       signs ^= p_op->p_signs[dest & 0x7ff] & 0x40;
+       signs ^= (eps & dest) >> (11 - 6);
+       signs ^= eps_sh;
+       *p_out++ = (uint8_t)(signs);
+       p_oct += 8;
+   }
+
+}
+
+
+/***************************************************************************
+** Export results of functions mmv_fast_prep_xy and mmv_fast_test_prep_xy
+***************************************************************************/
+
+
+// Size of p_out must be 3 + 4*24 + 2048 + 759*2
+// %%EXPORT px
+void mmv_fast_test_prep_xy(uint32_t f, uint32_t e, uint32_t eps, uint32_t *p_out)
+{
+    mmv_fast_op_xy_type op ALIGNED(32);
+    uint16_t p_signs[2048]; 
+    uint8_t p_T[759*2];
+    uint32_t i, j;
+    mmv_fast_prep_xy(f, e, eps, p_signs, &op);
+    for (i = 0; i < 3; ++i) *p_out++ = op.lin_d[i];
+    for (i = 0; i < 4; ++i) {
+        for (j = 0; j < 24; ++j) *p_out++ = op.p_lin_i[i]->b[j];
+    }
+    for (i = 0; i < 2048; ++i) *p_out++ = op.p_signs[i]; 
+
+    mmv_fast_prep_xy_64(&op, p_T);
+    for (i = 0; i < 759 * 2; ++i) *p_out++ = p_T[i];
+}
+
+
+
+/***************************************************************************
+** Functions performing the operation xy on tags X, Z, Y
+***************************************************************************/
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+static inline void _xy_24_mma0(
+   v32_8_type *v_in, v32_8_type *v_out, uint32_t sign_sh, 
+   mmv_fast_op_xy_type *p_xy
+)
+{
+    ASSUME_ALIGNED(v_in, 32);
+    ASSUME_ALIGNED(v_out, 32);
+    ASSUME_ALIGNED(p_xy, 32);
+    uint_fast32_t i;
+    uint16_t *p_signs  = p_xy->p_signs;
+    uint32_t diff = p_xy->lin_d[sign_sh];
+    mmv_fast_row32_type ALIGNED(32) v0;
+    mmv_fast_row32_type ALIGNED(32) mask_i = *((p_xy->p_lin_i)[sign_sh]);
+
+    for (i = 0; i < 2048; ++i) {
+        memcpy(&v0, &v_in[i ^ diff], 32);
+        #ifdef GCC_VECTORS
+            v0.v32[0] ^= (uint8_t)(0 - ((p_signs[i] >> sign_sh) & 1));
+        #else
+          {
+            uint64_t s = (0ULL - (uint64_t)((p_signs[i] >> sign_sh) & 1));
+            v0.u64[0] ^= s;
+            v0.u64[1] ^= s;
+            v0.u64[2] ^= s;
+          } 
+        #endif
+        mmv_row24_xor(v0, mask_i, &v0);
+        memcpy(&v_out[i], &v0, 32);  
+   }
+}
+
+/// @endcond  
+
+/***************************************************************************
+** Functions performing the operation xy on tags X, Z, Y
+***************************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+static inline void _xy_24_mma0_simple(
+   v32_8_type *v_in, v32_8_type *v_out, uint32_t sign_sh, uint16_t *p_signs
+)
+{
+    ASSUME_ALIGNED(v_in, 32);
+    ASSUME_ALIGNED(v_out, 32);
+    uint_fast32_t i;
+    mmv_fast_row32_type ALIGNED(32) v0;
+
+    for (i = 0; i < 2048; ++i) {
+        memcpy(&v0, &v_in[i], 32);
+        #ifdef GCC_VECTORS
+            v0.v32[0] ^= (uint8_t)(0 - ((p_signs[i] >> sign_sh) & 1));
+        #else
+          {
+            uint64_t s = (0ULL - (uint64_t)((p_signs[i] >> sign_sh) & 1));
+            v0.u64[0] ^= s;
+            v0.u64[1] ^= s;
+            v0.u64[2] ^= s;
+          } 
+        #endif
+        memcpy(&v_out[i], &v0, 32);  
+   }
+}
+
+
+
+
+/// @endcond  
+
+/***************************************************************************
+** Tables for performing the operation xy on tag T
+***************************************************************************/
+
+/// @cond DO_NOT_DOCUMENT
+
+#define F 0xff
+
+static mmv_fast_row64_type TABLE_PERM64_XY_HI[16] = {
+   // %%TABLE_PERM64_XY 256, 16
+} ;
+
+static mmv_fast_row64_type TABLE_PERM64_XY_LO[16] = {
+   // %%TABLE_PERM64_XY 16, 1
+} ;
+
+#undef F
+
+// %%EXPORT px
+uint8_t mmv_fast_read_table_perm64_xy(uint32_t signs, uint32_t pos)
+{
+    pos &= 0x3f;
+    return  TABLE_PERM64_XY_HI[(signs >> 4) & 0xf].b[pos]
+            ^ TABLE_PERM64_XY_LO[signs & 0xf].b[pos];
+
+}
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+
+/***************************************************************************
+** Functions performing the operation xy on tag T
+***************************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+static inline mmv_fast_row64_type load_transposed_64(
+     mmv_fast_row64_type v, uint8_t transp
+)
+{
+  mmv_fast_row64_type ALIGNED(64) r;
+  memcpy(&r, &v, sizeof(r)); 
+  #if defined(GCC_AVX2) && defined(SHUFFLE64)
+    static mmv_fast_row64_type range ALIGNED(64) = {{
+        0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07, 0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,
+        0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17, 0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x1f,
+        0x20,0x21,0x22,0x23,0x24,0x25,0x26,0x27, 0x28,0x29,0x2a,0x2b,0x2c,0x2d,0x2e,0x2f,
+        0x30,0x31,0x32,0x33,0x34,0x35,0x36,0x37, 0x38,0x39,0x3a,0x3b,0x3c,0x3d,0x3e,0x3f
+    }};
+    mmv_fast_row64_type ALIGNED(64) index;
+    index.v64[0] = range.v64[0] ^ transp;
+    r.m512[0] = _mm512_permutexvar_epi8(index.m512[0], r.m512[0]);
+  #else
+  #if defined(GCC_AVX2)
+    static mmv_fast_row32_type range ALIGNED(32) = {{
+        0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07, 0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,
+        0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17, 0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x1f,
+    }};
+    mmv_fast_row32_type ALIGNED(32) index, blend, swapped_hl;
+    uint8_t swap = (transp >> 5) & 1;
+
+    index.v32[0] = range.v32[0] ^ transp;
+    r.m256[0] = _mm256_shuffle_epi8(v.m256[swap], index.m256[0]);
+    r.m256[1] = _mm256_shuffle_epi8(v.m256[swap ^ 1], index.m256[0]);
+    blend.m256[0] = _mm256_set1_epi8(transp << 3);
+    swapped_hl.m256[0] = _mm256_permute4x64_epi64(r.m256[0], 0x4E);
+    r.m256[0] = _mm256_blendv_epi8(r.m256[0], swapped_hl.m256[0], blend.m256[0]);
+    swapped_hl.m256[0] = _mm256_permute4x64_epi64(r.m256[1], 0x4E);
+    r.m256[1] = _mm256_blendv_epi8(r.m256[1], swapped_hl.m256[0], blend.m256[0]);
+  #else
+  #if defined(GCC_VECTORS)
+    static v16_8_type  range = {
+        0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07, 0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,
+    };
+    uint8_t swap = (transp >> 4) & 3;
+    v16_8_type index = range ^ (uint8_t)(transp & 15);
+    // %%FOR* j in range(4)
+    r.v16[%{j}] = __builtin_shuffle(v.v16[%{j} ^ swap], index); 
+    // %%END FOR
+  #else
+    // %%FOR* j in range(64)
+    r.b[%{j}] = v.b[%{j} ^ transp]; 
+    // %%END FOR
+  #endif
+  #endif
+  #endif
+    return r;
+}
+
+
+
+
+static inline 
+void _xy_64_mma0(
+   mmv_fast_type *v_in, 
+   mmv_fast_type *v_out, 
+   uint8_t *p_op_t
+)
+{
+    ASSUME_ALIGNED(v_in, 64);
+    ASSUME_ALIGNED(v_out, 64);
+    uint_fast32_t i;
+    mmv_fast_row64_type ALIGNED(64) r, *p_in, *p_out;
+    p_in = v_in->r64 + MM_AUX_OFS_T/64; 
+    p_out = v_out->r64 + MM_AUX_OFS_T/64;
+    ASSUME_ALIGNED(p_in, 64);
+    ASSUME_ALIGNED(p_out, 64);
+
+    for (i = 0; i < 759; ++i) {
+        r = load_transposed_64(*p_in++, p_op_t[0]);
+        mmv_row64_xor(r, TABLE_PERM64_XY_HI[p_op_t[1] >> 4], &r);
+        mmv_row64_xor(r, TABLE_PERM64_XY_LO[p_op_t[1] & 0xf], &r);
+        *p_out++ =r;
+        p_op_t += 2;
+    }
+}
+
+
+/// @endcond
+
+
+/***************************************************************************
+** Functions performing operation xy with central elements e, f on tag T
+***************************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+static inline 
+void _xy_64_mma0_simple(
+   mmv_fast_type *v_in, 
+   mmv_fast_type *v_out, 
+   uint16_t *p_signs,
+   uint32_t eps
+)
+{
+    ASSUME_ALIGNED(v_in, 64);
+    ASSUME_ALIGNED(v_out, 64);
+    uint_fast32_t i;
+    mmv_fast_row64_type ALIGNED(64) r, *p_in, *p_out;
+    p_in = v_in->r64 + MM_AUX_OFS_T/64; 
+    p_out = v_out->r64 + MM_AUX_OFS_T/64;
+    ASSUME_ALIGNED(p_in, 64);
+    ASSUME_ALIGNED(p_out, 64);
+
+    for (i = 0; i < 759; ++i) {
+        uint_fast32_t dest = mat24_def_octad_to_gcode(i);
+        #ifdef GCC_VECTORS
+           uint8_t sign = (uint8_t)(p_signs[dest & 0x7ff]) >> 3;
+           sign ^= (uint8_t)((eps & dest) >> 11);
+           r = *p_in++;
+           r.v32[0] ^= (uint8_t)(0 - (sign & 1));
+           r.v32[1] ^= (uint8_t)(0 - (sign & 1));
+        #else
+           uint64_t sign = (uint64_t)(p_signs[dest & 0x7ff]) >> 3;
+           sign ^= (eps & dest) >> 11;
+           sign = 0ULL - (sign & 1ULL);
+           r = *p_in++;
+           // %%FOR* j in range(8) 
+           r.u64[%{j}] ^= sign; 
+           // %%END FOR  
+        #endif
+        *p_out++ =r;
+    }
+}
+
+/// @endcond
+
+
+/***************************************************************************
+** Functions performing the operation xy on tags B and C
+***************************************************************************/
+/// @cond DO_NOT_DOCUMENT 
+
+static inline void _neg_tag_C_mma0(mmv_fast_type *v)
+{
+    ASSUME_ALIGNED(v, 64);
+    uint_fast32_t i;
+    mmv_fast_row32_type *pv = (mmv_fast_row32_type *)(v->v32 + 48); 
+    for (i = 0; i < 24; ++i) {
+        #ifdef GCC_VECTORS
+            pv->v32[0] ^= 0xff;
+        #else 
+            pv->u64[0] ^= (0ULL - (uint64_t)1ULL);
+            pv->u64[1] ^= (0ULL - (uint64_t)1ULL);
+            pv->u64[2] ^= (0ULL - (uint64_t)1ULL);
+        #endif
+        ++pv;
+    }
+}
+
+
+
+
+static inline 
+void _xy_op_BC_mma0(
+   mmv_fast_type *v_in, 
+   mmv_fast_type *v_out, 
+   mmv_fast_op_xy_type *p_op
+)
+{
+    ASSUME_ALIGNED(v_in, 64);
+    ASSUME_ALIGNED(v_out, 64);
+    ASSUME_ALIGNED(p_op, 32);
+    mmv_fast_row32_type ALIGNED(32) ef[2], f[2];
+    uint_fast32_t i, bf, bef;
+    mmv_fast_row32_type ALIGNED(32) mask, b, c, *p_in, *p_out;
+    p_in = (mmv_fast_row32_type *)(v_in->v32); 
+    p_out = (mmv_fast_row32_type *)(v_out->v32);
+    ASSUME_ALIGNED(p_in, 32);
+    ASSUME_ALIGNED(p_out, 32);
+
+    ef[0] = p_op->ef_i;
+    f[0] = p_op->f_i;
+    for (i = 0; i < 3; ++i) {
+        ef[1].u64[i] = ef[0].u64[i] ^ (0ULL - (uint64_t)1ULL);
+        f[1].u64[i] = f[0].u64[i] ^ (0ULL - (uint64_t)1ULL);
+    }
+
+    for (i = 0; i < 24; ++i) {
+        bf = f[0].b[i] & 1;
+        bef = ef[0].b[i] & 1;
+        mmv_row24_xor(p_in[0], f[bf], p_out);
+        mmv_row24_xor(p_in[24], p_in[48], &mask);
+        mmv_row24_and(mask, f[bf], &mask);
+        mmv_row24_xor(p_in[24], mask, &b);
+        mmv_row24_xor(b, ef[bef], &p_out[24] );
+        mmv_row24_xor(p_in[48], mask, &c);
+        mmv_row24_xor(c, ef[bef], &p_out[48]);
+        ++p_in; ++p_out;
+    }
+}
+
+
+
+/// @endcond
+
+/***************************************************************************
+** Functions performing the operation xy on a vector of bytes
+***************************************************************************/
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+static inline void  mm_op_fast_op_xy_cond_neg_yz(uint32_t cond,
+    mmv_fast_row64_type *pv_in,  mmv_fast_row64_type *pv_out
+)
+{
+    ASSUME_ALIGNED(pv_in, 64);
+    ASSUME_ALIGNED(pv_out, 64);
+    if ((cond & 1) == 0) {
+        memcpy(pv_out, pv_in, 2048 * 32 * sizeof(uint8_t));
+    } else {
+        uint32_t i;
+        for (i = 0; i < 1024; ++i) {
+            mmv_row64_cond_compl(pv_in[i], 1, &(pv_out[i]));
+        } 
+    }
+} 
+
+
+static int32_t mm_op_fast_op_xy_mma0_superfast(
+    uint32_t f, uint32_t e, mmv_fast_type *p_in, mmv_fast_type *p_out
+)
+{
+    ASSUME_ALIGNED(p_in, 64);
+    ASSUME_ALIGNED(p_out, 64);
+    mmv_fast_row64_type *pv_in, *pv_out;
+    e ^= ker_table_yx[(f >> 11) & 3];
+    e = (e >> 11) & 3;
+    memcpy(p_out, p_in, MM_AUX_OFS_X);
+    pv_in = p_in->r64 + MM_AUX_OFS_X/64;
+    pv_out = p_out->r64 + MM_AUX_OFS_X/64;
+    mm_op_fast_op_xy_cond_neg_yz(e, pv_in, pv_out);
+    pv_in = p_in->r64 + MM_AUX_OFS_Z/64;
+    pv_out = p_out->r64 + MM_AUX_OFS_Z/64;
+    mm_op_fast_op_xy_cond_neg_yz(e >> 1, pv_in, pv_out);
+    pv_in =  p_in->r64 + MM_AUX_OFS_Y/64;
+    pv_out =  p_out->r64 + MM_AUX_OFS_Y/64;
+    e ^= e >> 1;
+    mm_op_fast_op_xy_cond_neg_yz(e, pv_in, pv_out);
+    return 0;
+}
+
+
+
+
+
+
+static int32_t mm_op_fast_op_xy_mma0(
+    uint32_t f, uint32_t e, uint32_t eps, mmv_fast_type *p_in, mmv_fast_type *p_out
+)
+{
+    ASSUME_ALIGNED(p_in, 64);
+    ASSUME_ALIGNED(p_out, 64);
+    mmv_fast_op_xy_type op_xy ALIGNED(32); 
+    uint_fast32_t src_z, src_y, src_x = MM_AUX_OFS_X/32;
+    uint8_t* p_op64 = (uint8_t*)(p_out->v32 + MM_AUX_OFS_X/32);
+    uint_fast32_t fast = ((e | f) & 0x7ff) == 0;
+    uint16_t *p_signs;
+    p_signs= ((uint16_t*)(p_out->v32 + MM_AUX_OFS_Y/32 + 2048)) - 2048;
+
+    if (fast && ((eps & 0xfff) == 0)) {
+        return  mm_op_fast_op_xy_mma0_superfast(f, e, p_in, p_out);    
+    }   
+
+    if (eps & 0x800) {
+        src_z = MM_AUX_OFS_Y/32;
+        src_y = MM_AUX_OFS_Z/32;
+    } else {
+        src_z = MM_AUX_OFS_Z/32;
+        src_y = MM_AUX_OFS_Y/32;
+    }
+
+    if (fast) {
+        mmv_fast_prep_xy_simple(f, e, eps, p_signs);
+
+        // Do tags A, B, C
+        memcpy(p_out, p_in, 72 * 32 * sizeof(uint8_t));
+
+        // Do Tag T
+        _xy_64_mma0_simple(p_in, p_out, p_signs, eps);
+
+        // Do Tags X, Z, Y
+        _xy_24_mma0_simple(p_in->v32 + src_x, p_out->v32 + MM_AUX_OFS_X/32,
+             0, p_signs);
+        _xy_24_mma0_simple(p_in->v32 + src_z, p_out->v32 + MM_AUX_OFS_Z/32,
+             1, p_signs);
+        _xy_24_mma0_simple(p_in->v32 + src_y, p_out->v32 + MM_AUX_OFS_Y/32,
+             2, p_signs);
+
+    } else {
+        mmv_fast_prep_xy(f, e, eps, p_signs, &op_xy);
+        mmv_fast_prep_xy_64(&op_xy, p_op64);
+
+        // Do tags A, B, C
+        _xy_op_BC_mma0(p_in, p_out, &op_xy);
+
+        // Do Tag T
+        _xy_64_mma0(p_in, p_out, p_op64);
+ 
+        // Do Tags X, Z, Y
+        _xy_24_mma0(p_in->v32 + src_x, p_out->v32 + MM_AUX_OFS_X/32, 0, &op_xy);
+        _xy_24_mma0(p_in->v32 + src_z, p_out->v32 + MM_AUX_OFS_Z/32, 1, &op_xy);
+        _xy_24_mma0(p_in->v32 + src_y, p_out->v32 + MM_AUX_OFS_Y/32, 2, &op_xy);
+    }
+
+    // Do not forget to negate some tag X and tag C entries if eps is odd
+    if (eps & 0x800) {
+        mm_op_fast_neg_scalprod_mma0(p_out);
+        _neg_tag_C_mma0(p_out);
+        // Negate also some tag T entries in the fast case
+        if (fast) mm_op_fast_neg_eps_64(p_out);
+    }
+    return 0;
+}
+
+
+
+
+
+/// @endcond
+
+
+/***************************************************************************
+** Main function performing the operation xy on a vector
+***************************************************************************/
+
+
+
+// %%EXPORT p
+int32_t mm_op_fast_op_xy(mmv_fast_matrix_type *pm, uint32_t f, uint32_t e, uint32_t eps)
+{
+    uint32_t cur = pm->current &= 1;
+    switch (pm->mode) {
+        case 1:
+            {
+                mmv_fast_type *p_in = pm->p_v.p_vb[cur];  
+                mmv_fast_type *p_out = pm->p_v.p_vb[cur ^ 1];  
+                pm->current = cur ^ 1;  
+                return mm_op_fast_op_xy_mma0(f, e, eps, p_in, p_out);
+            }
+        default:
+            return -1;   
+    }
+}
+
+
+/***************************************************************************
+** Function performing the operation y on part A
+***************************************************************************/
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+// %%EXPORT p
+void mm_op_fast_op_y_A_mod_3(mmv_fast_row32_type *pm, uint32_t y)
+{
+    uint32_t vy = mat24_gcode_to_vect(y & 0x7ff), i;
+    mmv_fast_row32_type ALIGNED(32) mask[2];
+
+    for (i = 0; i < 24; ++i) {
+        uint8_t u = (uint8_t)(0 - ((vy >> i) & 1));
+        mask[0].b[i] = u;
+        mask[1].b[i] = u ^ (uint8_t)(0xff);
+    } 
+    for (i = 24; i < 32; ++i) mask[0].b[i] = mask[1].b[i] = 0;
+    for (i = 0; i < 24; ++i) {
+        mmv_row24_xor(pm[i], mask[(vy >> i) & 1], &pm[i]);
+    }
+}
+
+
+/// @endcond
+
+
+
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

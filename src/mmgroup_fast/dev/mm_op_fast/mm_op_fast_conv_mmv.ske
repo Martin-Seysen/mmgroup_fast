@@ -1,0 +1,151 @@
+#include "mm_op_fast.h"
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT 
+//  %%GEN c
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+typedef union {
+    uint8_t w[32];
+    uint64_t u64[4]; 
+} mm_fast_buf32_type;
+
+
+
+// %%FOR width in [24, 32]
+static inline  void _mma3_to_mmv_%{width}(
+    mmv_fast_type *a, uint_mmv_t *v, uint32_t index, uint32_t start, uint32_t n
+)
+{
+    ASSUME_ALIGNED(a, 64);
+    uint_fast32_t i, sh = (2*index) & 7;
+    mm_fast_buf32_type ma;
+    uint_mmv_t mv;
+    for (i = start; i < start + n; ++i) {
+        memcpy(&ma, a->v32 + i, 32);
+        mv = 0;
+        // %%FOR* k in range(width)
+           mv |= (uint_mmv_t)((ma.w[%{k}] >> sh) & 3) << %{int:2*k};
+        // %%END FOR
+        v[i] = mv;
+    }
+}
+
+
+
+static inline  void _mmv_to_mma3_%{width}(
+    uint_mmv_t *v, uint32_t index, mmv_fast_type *a,  uint32_t start, uint32_t n
+)
+{
+    ASSUME_ALIGNED(a, 64);
+    uint_fast32_t i, sh = (2*index) & 7;
+    mm_fast_buf32_type ma, mask;
+    uint8_t byte_mask = (uint8_t)(0xff ^ (3 << sh));
+    for (i = 0; i < 32; ++i) mask.w[i] = byte_mask; 
+
+    uint_mmv_t mv;
+    for (i = start; i < start + n; ++i) {
+        memcpy(&ma, a->v32 + i, 32);
+        mv = v[i];
+        // %%FOR* k in range(4)
+           ma.u64[%{k}] &= mask.u64[%{k}];
+        // %%END FOR
+        // %%FOR* k in range(width)
+           ma.w[%{k}] |= (uint8_t)(((mv >> %{int:2*k}) & 3) << sh);
+        // %%END FOR
+        memcpy(a->v32 + i, &ma, 32);
+    }
+}
+
+
+// %%END FOR
+
+
+/// @endcond 
+
+
+
+// %%EXPORT p
+int32_t mm_op_fast_mma3_to_mmv(mmv_fast_type *a, uint32_t index, uint_mmv_t *v)
+{
+    ASSUME_ALIGNED(a, 64);
+    uint64_t i, mask = 3;
+    if (index >= 4) return -1;
+    _mma3_to_mmv_24(a, v, index, 0, 72);
+    _mma3_to_mmv_32(a, v, index, MM_AUX_OFS_T / 32, 2 * 759);
+    _mma3_to_mmv_24(a, v, index, MM_AUX_OFS_X / 32, 3 * 2048);
+    // zero diagonal of tag B and C
+    for (i = 0; i < 24; ++i) {
+        v[i+24] &= ~mask;
+        v[i+48] &= ~mask;
+        mask <<= 2;
+    } 
+    return 0;
+} 
+
+
+
+// %%EXPORT p
+int32_t mm_op_fast_mma3_from_mmv(mmv_fast_type *a, uint32_t index, uint_mmv_t *v)
+{
+    ASSUME_ALIGNED(a, 64);
+    if (index >= 4) return -1;
+    _mmv_to_mma3_24(v, index, a, 0, 72);
+    _mmv_to_mma3_32(v, index, a, MM_AUX_OFS_T / 32, 2 * 759);
+    _mmv_to_mma3_24(v, index, a, MM_AUX_OFS_X / 32, 3*2048);
+    return 0;
+} 
+
+// %%EXPORT p
+int32_t mm_op_fast_to_mmv(mmv_fast_matrix_type *pm,  uint32_t index, uint_mmv_t *v, uint32_t len_v)
+{
+    if (mm_op_fast_normalize(pm, 0) < 0) return -1;
+    switch (pm->mode) {
+        case 1:
+            {
+                mmv_fast_type *pmdata = pm->p_v.p_vb[0]; 
+                uint32_t len_mmv = mm_aux_mmv_size(pm->p);
+                if (len_mmv == 0 || len_mmv > len_v) return -1;
+                if (pm->p == 3) {
+                    return  mm_op_fast_mma3_to_mmv(pmdata, index, v);
+                }
+                return -1;
+            }
+        default:
+            return -1;   
+    }
+
+}
+
+// %%EXPORT p
+int32_t mm_op_fast_from_mmv(mmv_fast_matrix_type *pm,  uint32_t index, uint_mmv_t *v)
+{
+    if (mm_op_fast_normalize(pm, 0) < 0) return -1;
+    switch (pm->mode) {
+        case 1:
+            {
+                mmv_fast_type *pmdata = pm->p_v.p_vb[0]; 
+                uint32_t len_mmv = mm_aux_mmv_size(pm->p);
+                if (len_mmv == 0) return -1;
+                if (pm->p == 3) {
+                    return  mm_op_fast_mma3_from_mmv(pmdata, index, v);
+                }
+                return -1;
+            }
+        default:
+            return -1;   
+    }
+
+}
+
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

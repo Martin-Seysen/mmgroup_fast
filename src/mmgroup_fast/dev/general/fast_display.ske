@@ -1,0 +1,67 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include "mm_op_fast_types.h"
+#include "mmgroup_fast_display.h"
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+static char *MMGOUP_FAST_GCC_CAPABILITIES =
+    #ifdef GCC_VECTORS
+       "GCC_VECTORS "
+    #endif
+    #ifdef GCC_AVX2
+       "GCC_AVX2 "
+    #endif
+    #ifdef SHUFFLE64
+       "SHUFFLE64 "
+    #endif
+    "";
+
+/// @endcond 
+
+
+// %%EXPORT p
+char *mmgroup_fast_gcc_capabilities(void)
+{
+    return  MMGOUP_FAST_GCC_CAPABILITIES;
+}
+
+// %%EXPORT px 
+int32_t mmgroup_fast_test_shuffle16(uint8_t *data, uint8_t *mask)
+{
+    v16_8_type vdata, vmask;
+    memcpy(&vdata, data, 16);
+    memcpy(&vmask, mask, 16);
+    #ifdef GCC_VECTORS
+        vdata = __builtin_shuffle(vdata, vmask);
+        memcpy(data, &vdata, 16);
+        return 0;
+    #else
+        return -1;
+    #endif
+}
+
+  
+
+
+// %%EXPORT px 
+int32_t mmgroup_fast_test_shuffle64_16(uint8_t *data, uint8_t *mask, uint8_t *data_out)
+{
+    #if defined(GCC_VECTORS) && defined(SHUFFLE64)
+        v64_8_type m, a;
+        memcpy(&a, data, 64);
+        memcpy(&m, mask, 64);
+        a = __builtin_shuffle(a, m);
+        memcpy(data_out, &a, 64); 
+        return 0;
+    #else
+        // %%FOR i in range(64)
+        data_out[%{i}] = data[mask[%{i}]];
+        // %%END FOR
+    #endif
+        return 0;
+}
+
+

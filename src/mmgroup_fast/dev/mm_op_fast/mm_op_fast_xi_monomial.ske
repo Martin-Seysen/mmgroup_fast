@@ -1,0 +1,365 @@
+#define MM_OP_FAST_PERMUTATIONS
+#define MM_OP_FAST_HADAMARD
+#include <stdlib.h>
+#include "mm_op_fast.h"
+#include "mat24_functions.h"
+#include "mm_basics.h"
+
+
+
+
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT 
+//  %%GEN c
+
+
+
+
+
+
+
+/***************************************************************************
+**  Monomial part of operation 'xi' without shuffling
+***************************************************************************/
+
+#ifndef GCC_VECTORS
+
+
+
+static const union {
+    uint8_t b[8];
+    uint64_t u64;
+} TAB_SIGN[256] = {
+// %%TABLE U64_SPREAD8_TABLE, uint8
+};
+
+
+
+// %%EXPORT  
+void mm_op_fast_xi_monomial(mmv_fast_row32_type *pi_in, uint32_t exp1, mmv_fast_row32_type *pi_out)
+{
+    ASSUME_ALIGNED(pi_in, 32);
+    ASSUME_ALIGNED(pi_out, 32);
+    mmv_fast_row32_type *p_src, *p_dest;
+    uint_fast32_t j, k;
+    mm_sub_table_xi_type *p_tables;
+    uint16_t *p_perm;
+    uint32_t *p_sign;
+    uint32_t sign;
+
+
+    // %%FOR* i in range(5)
+    // %%WITH* SRC_SHAPE = MM_TABLE_SHAPES_XI[i][0]
+    // %%WITH* DEST_SHAPE = MM_TABLE_SHAPES_XI[i][1]
+
+    ///////////////////////////////////////////////////////////////
+    //  %%OP_XI_COMMENT* i
+    ///////////////////////////////////////////////////////////////
+    p_src = pi_in + (MM_SUB_OFFSET_TABLE_XI[%{i}][exp1][0] >> 5);
+    p_dest = pi_out + (MM_SUB_OFFSET_TABLE_XI[%{i}][exp1][1] >> 5);
+    p_tables =  &MM_SUB_TABLE_XI[%{i}][exp1];
+    p_sign = p_tables->p_sign;
+    p_perm = p_tables->p_perm;
+
+    for (j = 0; j < %{DEST_SHAPE[0]}; ++j) {
+        for (k = 0; k < %{DEST_SHAPE[1]}; ++k) {
+            // %%FOR m in range(DEST_SHAPE[2])
+            p_dest->b[%{m}] = p_src->b[p_perm[%{m}]];
+            // %%END FOR
+            sign = *p_sign++;
+            // %%FOR m in range(DEST_SHAPE[2] >> 3)
+            p_dest->u64[%{m}] ^=  TAB_SIGN[(sign >> %{int:8*m}) & 0xff].u64;
+            // %%END FOR
+            p_dest += 1;
+            p_perm += %{DEST_SHAPE[2]};
+        }
+        p_src += %{SRC_SHAPE[1]};
+    }
+    // %%END WITH
+    // %%END WITH
+    // %%END FOR
+}
+
+
+#endif // #ifndef GCC_VECTORS
+
+
+/***************************************************************************
+**  Monomial part of operation 'xi'with shuffling,  stage 0 (on box 'BC')
+***************************************************************************/
+
+
+#ifdef GCC_VECTORS
+
+
+// %%WITH* SHAPE = MM_TABLE_SHAPES_XI[0][0]
+
+
+static const uint8_t TAB_INDICES_BC_XI[2][%{SHAPE[1]}] = {
+// %%TABLE SIGN_INDICES_BC_TABLE_XI, uint8
+};
+
+static const mmv_fast_row32_type TAB_DATA_BC_XI[] = {
+// %%TABLE SIGN_DATA_BC_TABLE_XI, uint8
+};
+
+
+
+static void
+op_monomial_BC(mmv_fast_row32_type *pi_in, uint32_t exp1, mmv_fast_row32_type *pi_out)
+{
+    ASSUME_ALIGNED(pi_in, 32);
+    ASSUME_ALIGNED(pi_out, 32);
+    mmv_fast_row32_type *p_src, *p_dest;
+    uint_fast32_t k;
+    mm_sub_table_xi_type *p_tables;
+    uint16_t *p_perm;
+    const uint8_t *p_sign;
+
+    ///////////////////////////////////////////////////////////////
+    //  %%OP_XI_COMMENT* 0
+    ///////////////////////////////////////////////////////////////
+    p_src = pi_in + (MM_SUB_OFFSET_TABLE_XI[0][exp1][0] >> 5);
+    p_dest = pi_out + (MM_SUB_OFFSET_TABLE_XI[0][exp1][1] >> 5);
+    p_tables =  &MM_SUB_TABLE_XI[0][exp1];
+    p_sign = TAB_INDICES_BC_XI[exp1];
+    p_perm = p_tables->p_perm;
+        for (k = 0; k < %{SHAPE[1]}; ++k) {
+            // %%FOR m in range(SHAPE[2])
+            p_dest->b[%{m}] = p_src->b[p_perm[%{m}]];
+            // %%END FOR
+            p_dest->v32[0] ^= TAB_DATA_BC_XI[*p_sign].v32[0];
+            p_sign += 1;
+            p_dest += 1;
+            p_perm += %{SHAPE[2]};
+        }
+        p_src += %{SHAPE[1]};
+}
+
+// %%END WITH
+
+
+
+#endif // #ifdef GCC_VECTORS
+
+/***************************************************************************
+** Monomial part of operation 'xi' with shuffling,  stage 1-4 (other boxes)
+***************************************************************************/
+
+#ifdef GCC_VECTORS
+
+#if defined(GCC_AVX2)
+  #define shuffle32(value, mask)  \
+    value.m256[0] = _mm256_shuffle_epi8(value.m256[0], mask.m256[0])
+#elif defined(SHUFFLE64)
+  #define shuffle32(value, mask) \
+    value.v32[0] = __builtin_shuffle(value.v32[0], mask.v32[0])
+#else
+  #define shuffle32(value, mask) \
+    value.v16[0] = __builtin_shuffle(value.v16[0], mask.v16[0]); \
+    value.v16[1] = __builtin_shuffle(value.v16[1], mask.v16[1])
+#endif
+
+
+static void
+op_monomial_TX(mmv_fast_row32_type *pi_in, uint32_t exp1, mmv_fast_row32_type *pi_out)
+{
+    ASSUME_ALIGNED(pi_in, 32);
+    ASSUME_ALIGNED(pi_out, 32);
+
+    mmv_fast_row32_type buf[16];
+    mmv_fast_row32_type *p_src, *p_dest, *p_buf = buf, *p_buf1;
+    uint_fast32_t j, k;
+    uint32_t *p_offset;
+    const uint8_t *p_perm, *p_sign;
+
+    // %%WITH* i = 1
+    // %%WITH* SRC_SHAPE = MM_TABLE_SHAPES_XI[i][0]
+    // %%WITH* DEST_SHAPE = MM_TABLE_SHAPES_XI[i][1]
+    ///////////////////////////////////////////////////////////////
+    //  %%OP_XI_COMMENT* i
+    ///////////////////////////////////////////////////////////////
+    p_src = pi_in + (MM_SUB_OFFSET_TABLE_XI[%{i}][exp1][0] >> 5);
+    p_dest = pi_out + (MM_SUB_OFFSET_TABLE_XI[%{i}][exp1][1] >> 5);
+    p_offset = MM_FAST_OFFSET_XI[%{i}][exp1];
+    p_perm = MM_FAST_TABLE_XI + p_offset[0];
+    p_sign = MM_FAST_INDICES_XI + p_offset[1];
+
+    for (j = 0; j < %{SRC_SHAPE[0]}; ++j) {
+        p_buf1 = p_buf;
+        for (k = 0; k < %{DEST_SHAPE[1]}; ++k) {
+            // %%FOR m in range(DEST_SHAPE[2] >> 1)
+            p_buf1->u16[%{m}] = p_src->u16[p_perm[%{m}]];
+            // %%END FOR
+            p_buf1 += 1;
+            p_perm += %{int:DEST_SHAPE[2] >> 1};
+        }
+        // %%FOR m in range(DEST_SHAPE[1])
+        shuffle32(p_buf[%{m}], MM_FAST_DATA_XI[p_sign[%{int:2*m}]]); 
+        p_dest[%{m}].v32[0] = p_buf[%{m}].v32[0] 
+            ^ MM_FAST_DATA_XI[p_sign[%{int:2*m+1}]].v32[0];
+        // %%END FOR
+        p_src += %{SRC_SHAPE[1]};
+        p_dest += %{DEST_SHAPE[1]};
+        p_sign += %{int:2*DEST_SHAPE[1]};
+   }
+    // %%END WITH
+    // %%END WITH
+    // %%END WITH
+
+    // %%WITH* i = 2
+    // %%WITH* SRC_SHAPE = MM_TABLE_SHAPES_XI[i][0]
+    // %%WITH* DEST_SHAPE = MM_TABLE_SHAPES_XI[i][1]
+    ///////////////////////////////////////////////////////////////
+    //  %%OP_XI_COMMENT* i
+    ///////////////////////////////////////////////////////////////
+    p_src = pi_in + (MM_SUB_OFFSET_TABLE_XI[%{i}][exp1][0] >> 5);
+    p_dest = pi_out + (MM_SUB_OFFSET_TABLE_XI[%{i}][exp1][1] >> 5);
+    p_offset = MM_FAST_OFFSET_XI[%{i}][exp1];
+    p_perm = MM_FAST_TABLE_XI + p_offset[0];
+    p_sign = MM_FAST_INDICES_XI + p_offset[1];
+
+    for (j = 0; j < %{SRC_SHAPE[0]}; ++j) {
+        // %%FOR m in range(SRC_SHAPE[1])
+        p_buf[%{m}].v32[0] = p_src[%{m}].v32[0] 
+            ^ MM_FAST_DATA_XI[p_sign[%{int:2*m+1}]].v32[0];
+        shuffle32(p_buf[%{m}], MM_FAST_DATA_XI[p_sign[%{int:2*m}]]); 
+        // %%END FOR
+        p_sign += %{int:2*SRC_SHAPE[1]};
+        for (k = 0; k < %{DEST_SHAPE[1]}; ++k) {
+            // %%FOR m in range(DEST_SHAPE[2] >> 2)
+            p_dest->u32[%{m}] = p_buf->u32[p_perm[%{m}]];
+            // %%END FOR
+            p_dest += 1;
+            p_perm += %{int:DEST_SHAPE[2] >> 2};
+        }
+        p_src += %{SRC_SHAPE[1]};
+    }
+    // %%END WITH
+    // %%END WITH
+    // %%END WITH
+
+    // %%WITH* i = 3
+    // %%WITH* SRC_SHAPE = MM_TABLE_SHAPES_XI[i][0]
+    // %%WITH* DEST_SHAPE = MM_TABLE_SHAPES_XI[i][1]
+    ///////////////////////////////////////////////////////////////
+    //  %%OP_XI_COMMENT* i
+    ///////////////////////////////////////////////////////////////
+    p_src = pi_in + (MM_SUB_OFFSET_TABLE_XI[%{i}][exp1][0] >> 5);
+    p_dest = pi_out + (MM_SUB_OFFSET_TABLE_XI[%{i}][exp1][1] >> 5);
+    p_offset = MM_FAST_OFFSET_XI[%{i}][exp1];
+    p_perm = MM_FAST_TABLE_XI + p_offset[0];
+    p_sign = MM_FAST_INDICES_XI + p_offset[1];
+    if (exp1 == 0) {
+        for (j = 0; j < %{SRC_SHAPE[0]}; ++j) {
+            p_buf1 = p_buf;
+            for (k = 0; k < %{DEST_SHAPE[1]}; ++k) {
+                // %%FOR m in range(DEST_SHAPE[2] >> 2)
+                p_buf1->u32[%{m}] = p_src->u32[p_perm[%{m}]];
+                // %%END FOR
+                p_buf1 += 1;
+                p_perm += %{int:DEST_SHAPE[2] >> 2};
+            }
+            // %%FOR m in range(DEST_SHAPE[1])
+            shuffle32(p_buf[%{m}], MM_FAST_DATA_XI[p_sign[%{int:2*m}]]); 
+            p_dest[%{m}].v32[0] = p_buf[%{m}].v32[0] 
+                ^ MM_FAST_DATA_XI[p_sign[%{int:2*m+1}]].v32[0];
+            // %%END FOR
+            p_src += %{SRC_SHAPE[1]};
+            p_dest += %{DEST_SHAPE[1]};
+            p_sign += %{int:2*DEST_SHAPE[1]};
+        }
+    } else {
+        for (j = 0; j < %{SRC_SHAPE[0]}; ++j) {
+            // %%FOR m in range(SRC_SHAPE[1])
+            p_buf[%{m}].v32[0] = p_src[%{m}].v32[0] 
+                ^ MM_FAST_DATA_XI[p_sign[%{int:2*m+1}]].v32[0];
+            shuffle32(p_buf[%{m}], MM_FAST_DATA_XI[p_sign[%{int:2*m}]]); 
+            // %%END FOR
+            p_sign += %{int:2*SRC_SHAPE[1]};
+            for (k = 0; k < %{DEST_SHAPE[1]}; ++k) {
+                // %%FOR m in range(DEST_SHAPE[2] >> 2)
+                p_dest->u32[%{m}] = p_buf->u32[p_perm[%{m}]];
+                // %%END FOR
+                p_dest += 1;
+                p_perm += %{int:DEST_SHAPE[2] >> 2};
+            }
+            p_src += %{SRC_SHAPE[1]};
+        }
+    }
+    // %%END WITH
+    // %%END WITH
+    // %%END WITH
+
+
+
+    // %%WITH* i = 4
+    // %%WITH* SRC_SHAPE = MM_TABLE_SHAPES_XI[i][0]
+    // %%WITH* DEST_SHAPE = MM_TABLE_SHAPES_XI[i][1]
+    ///////////////////////////////////////////////////////////////
+    //  %%OP_XI_COMMENT* i
+    ///////////////////////////////////////////////////////////////
+    p_src = pi_in + (MM_SUB_OFFSET_TABLE_XI[%{i}][exp1][0] >> 5);
+    p_dest = pi_out + (MM_SUB_OFFSET_TABLE_XI[%{i}][exp1][1] >> 5);
+    p_offset = MM_FAST_OFFSET_XI[%{i}][exp1];
+    p_perm = MM_FAST_TABLE_XI + p_offset[0];
+    p_sign = MM_FAST_INDICES_XI + p_offset[1];
+
+    for (j = 0; j < %{SRC_SHAPE[0]}; ++j) {
+        p_buf1 = p_buf;
+        for (k = 0; k < %{DEST_SHAPE[1]}; ++k) {
+            // %%FOR m in range(DEST_SHAPE[2] >> 2)
+            p_buf1->u32[%{m}] = p_src->u32[p_perm[%{m}]];
+            // %%END FOR
+            p_buf1 += 1;
+            p_perm += %{int:DEST_SHAPE[2] >> 2};
+        }
+        // %%FOR m in range(DEST_SHAPE[1])
+        shuffle32(p_buf[%{m}], MM_FAST_DATA_XI[p_sign[%{int:2*m}]]); 
+        p_dest[%{m}].v32[0] = p_buf[%{m}].v32[0] 
+            ^ MM_FAST_DATA_XI[p_sign[%{int:2*m+1}]].v32[0];
+        // %%END FOR
+        p_src += %{SRC_SHAPE[1]};
+        p_dest += %{DEST_SHAPE[1]};
+        p_sign += %{int:2*DEST_SHAPE[1]};
+    }
+    // %%END WITH
+    // %%END WITH
+    // %%END WITH
+
+
+
+}
+
+#endif // #ifdef GCC_VECTORS
+
+
+
+
+/***************************************************************************
+**  Monomial part of operation 'xi'with shuffling
+***************************************************************************/
+
+#ifdef GCC_VECTORS
+
+// %%EXPORT  
+void mm_op_fast_xi_monomial(mmv_fast_row32_type *pi_in, uint32_t exp1, mmv_fast_row32_type *pi_out)
+{
+    ASSUME_ALIGNED(pi_in, 32);
+    ASSUME_ALIGNED(pi_out, 32);
+    op_monomial_BC(pi_in, exp1, pi_out);
+    op_monomial_TX(pi_in, exp1, pi_out);
+}    
+
+#endif // #ifdef GCC_VECTORS
+
+
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

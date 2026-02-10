@@ -1,0 +1,950 @@
+/** @file mm_axis3_fast_sym.c
+
+The functions in this module load the part 'A' of a vector (with
+entries taken modulo 3) in the Griess algebra into a structure of
+type ``mmv_fast_Amod3_type``. This part 'A' corresponds to a
+symmetric matrix on the Leech lattice modulo 3, see e.g. [Con85].
+Function ``mm_axis3_fast_load`` initializes  a structure of
+type ``mmv_fast_Amod3_type`` from a vector in the Griess algebra
+of type ``mmv_fast_matrix_type``. More pecisely, data are loaded
+form a matrix of row vectors in the Griess algebra.
+
+
+The functions in this module perform operations auch as computing
+the kernel and the image of that symmetric matrix. Usually the
+symmetric matrix is loaded from an axis of a 2A involution. The
+ultimate purpose of the functions in this module is to construct
+a type-4 vector in the Leech lattice mod 2 from the axis that
+can be used to *reduce* the axis. Here an axis is reduced by
+transforming that type-4 vector to the standard type-4 vector
+with a transformation in the group \f$G_{x0}\f$. Afterwards a
+power of the triality element in f$\M\f$ is (usually) applied
+for further reduction of the axis. For details we refer to
+[Sey22]. However, our method of finding such a type-4 vector
+differs from the corresponding method in [Sey22], where the
+entry of an axis are assumed to be known modulo 15.   
+
+More details are yet to be documented!
+
+Data in a structure of type ``mmv_fast_Amod3_type``
+
+Caution:
+The data in this structure should not be initialized or changed
+directly by the user; here the functions in this module should be
+used instead. 
+
+The structure contains two 24 times 24 matrices A and B of
+integers mod 3. Here matrix A is the original symmetric matrix
+obtained from the part 'A' of a vector in the Griess algebra.
+Depending on the entries of the structure discussed below,
+matrix B may contain kernels or images of matrices related to
+matrix A.  
+ 
+Given a structure of type ``mmv_fast_Amod3_type``, the
+function ``mm_axis3_fast_data_ptr`` returns a pointer ``p`` of
+type ``uint8_t*`` pointing to the data in the matrices A and B.
+Then we have:
+
+``A[i,j] = p[32 * i + j],  B[i,j] = p[32 * (24 + i) + j]``.
+
+The entries A[i,j], B[i,j] obtained in that way are 0, 1, 2,
+or 3, with 3 equal to 0 (mod 3). Entries of matrix B may 
+be undefined or containing undocumented data.
+
+Member a structure of type ``mmv_fast_Amod3_type``
+
+ * | Type      | Member   | Content                                   |
+ * |-----------|----------|-------------------------------------------|
+ * | int8_t    | norm     | norm of matrix A (mod 3)                  |
+ * | int8_t    | diag     | multiple of unit matrix subtracted from A |
+ * | int8_t    | dim_img  | dimension of image of matrix A            |
+ * | int8_t    | mode_B   | describes data in matrix B, see below     |
+ * | int8_t[2] | len_B    | see below                                 |
+
+An invalid integer is encoded as -1. The norm of a matrix is the sum
+of the square of is entries. Member ``dim_ker_img`` describes data in 
+matrix B. This data can be controlled by calling
+function ``mm_axis3_fast_intersect``. 
+
+After loading a structure ``mmv_fast_Amod3_type``, one should call
+function ``mm_axis3_fast_echelon`` with a argument ``d`` to
+store the kernel and the image of the matrix ``A - d * I`` in the
+array ``B``. Here ``I`` is the unit matrix. Data in ``B`` are
+stoerd in an internal format corresponding to ``mode_B = 4`` in
+the table below. Parameter ``d`` (modulo 15) is kept in member
+``diag``.  
+
+The member ``mode_B`` means the following:
+
+ * | Value | Matrix B contains:     |
+ * |-------|------------------------|
+ * | -1    | invalid data           |
+ * |  0    | image, kernel          |
+ * |  1    | kernel, image          |
+ * |  2    | image, intersection    |
+ * |  3    | kernel, intersection   |
+ * |  4    | for internal use only  |
+
+Here 'image' and 'kernel' are the image and the kernel of matrix A.
+'intersection' is the intersection of that image and that kernel.
+Kernel, image and intersection are stored as row matrices. After
+calling function ``mm_axis3_fast_intersect`` with an appropriate
+argument, two of these row matrices are stored contiguously in the
+matrix B in the order as indicated in the table above. Their lengths
+(i.e. the numbers of rows) are stored in member len_B.
+ 
+
+
+More Members a structure of type ``mmv_fast_Amod3_type``
+
+ * | Type                  | Member     | Content                  |
+ * |-----------------------|------------|--------------------------|
+ * | mmv_fast_matrix_type* | p_source   | pointer to source matrix |
+ * | int32_t               | row_source | row of source matrix     |
+
+Here an invalid pointer is encoded as NULL;
+
+*/
+
+#include <stdlib.h>
+#include <stdint.h>
+#include "mat24_functions.h"
+#include "mmgroup_generators.h"
+#include "mm_op_fast.h"
+#include "mm_op_fast_intern.h"
+#include "mm_op_sub.h"   
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT 
+//  %%GEN c
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+#define h (s_it.data)
+/// @endcond
+
+
+
+/**********************************************************************
+* Load data into a structure of type mm_axis3_fast_load
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+static inline void mm_axis3_fast_init(mmv_fast_Amod3_type *pa)
+{
+    // We don't trust the alignment in the structure mmv_fast_Amod3_type,
+    // especially when when gcc amd MSVC have to cooperate for the
+    // Windows version.
+    uintptr_t raw_addr = (uintptr_t)pa->a_data;
+    uintptr_t aligned_addr = (raw_addr + 31) & ~(uintptr_t)(31);
+
+    // Store the aligned pointer to the member array a_data in member a
+    pa->a = (mmv_fast_row32_type*)(aligned_addr);
+    gen_rng_seed(pa->seed);
+}
+
+
+
+/**  
+  @brief Return norm of 24 times 24 matrix modulo 3.
+  
+  The norm is the sum of the squares of the entries of the matrix.
+*/
+static inline uint32_t mm_axis3_norm_mod3(mmv_fast_row32_type *pa)
+{
+   uint64_t sum;
+   uint32_t i;
+ #ifdef GCC_VECTORS
+    mmv_fast_row32_type sumv;
+    memset(&sumv.v32[0], 0, 32);
+    for (i = 0; i < 24; ++i) sumv.v32[0] += (pa[i].v32[0] + 1) & 2; 
+    sumv.v32[0] >>= 1;
+    sum = sumv.u64[0] + sumv.u64[1] + sumv.u64[2];
+ #else
+    sum = 0;    
+    #define MASK8(MASK) ((uint64_t)((MASK) * 0x0101010101010101ULL)) 
+    for (i = 0; i < 24; ++i) {
+        sum += ((pa[i].u64[0] & MASK8(3)) + MASK8(1)) & MASK8(2);
+        sum += ((pa[i].u64[1] & MASK8(3)) + MASK8(1)) & MASK8(2);
+        sum += ((pa[i].u64[2] & MASK8(3)) + MASK8(1)) & MASK8(2);
+    }
+    #undef MASK8
+    sum >>= 1;
+ #endif
+    return (int8_t)(sum % 3);
+}
+
+
+
+/// @endcond
+
+
+
+
+/**  
+  @brief Load part A mod 3 of a vector in the representation of the monster.
+  
+  Here parameter ``pm`` points to a matrix of row vectors of the
+  representation of the Monster. The function loads part 'A' of row
+  ``row`` of that matrix into a structure of type ``mmv_fast_Amod3_type``
+  referred by parameter ``pa``. That part 'A' is a 24 times 24 matrix of
+  integers mod 3. The function returns the sum of the squares of the
+  entries of that part 'A' modulo 3.
+  It returns a negative value in case of an error.
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_load(mmv_fast_matrix_type *pm, uint32_t row, mmv_fast_Amod3_type *pa)
+{
+    pa->p_source = NULL;
+    pa->diag = pa->dim_img =  pa->mode_B = -1;
+    pa->row_source = pa->sub_row_source = -1;
+    mm_axis3_fast_init(pa);
+    mmv_fast_row32_type *pa1 = pa->a;
+    switch (pm->mode) {
+        case 1:
+            {
+                mmv_fast_type *pmdata = pm->p_v.p_vb[pm->current & 1];
+                if (pmdata == NULL) return -1; 
+                uint32_t i, sh;
+                if (pm->p == 3) {
+                    if (row >= 4) return -3;
+                    sh = 2 * row;
+                    for (i = 0; i < 24; ++i) {
+                        mmv_fast_row32_type t;
+                        t.v32[0] = pmdata->v32[i];
+                      #ifdef GCC_VECTORS
+                        t.v32[0] = (t.v32[0] >> sh) & 3;
+                      #else
+                        // %%FOR* j in range(3)
+                        t.u64[%{j}] = (t.u64[%{j}] >> sh) & 0x0303030303030303ULL;
+                        // %%END FOR
+                      #endif 
+                        pa1[i].v32[0] = t.v32[0];
+                    }
+                    pa->norm = mm_axis3_norm_mod3(pa->a);
+                    pa->p_source = pm;
+                    pa->row_source = row;
+                    return (int32_t)(pa->norm);
+                }
+                return -2;
+            }
+        default:
+            return -1;   
+    }
+}
+
+
+
+/**  
+  @brief Load part A mod 3 of a vector from array of bytes.
+  
+  Here parameter ``pm`` points to a matrix of row vectors of the
+  representation of the Monster. The function loads part 'A' of row
+  ``row`` of that matrix into a structure of type ``mmv_fast_Amod3_type``
+  referred by parmeter ``pa``. It returns the sum of the squares of the
+  entries of that part 'A' modulo 3.
+  
+  The function returns a negative value in case of an error.
+
+  A structure of type ``mmv_fast_Amod3_type`` can store a 24 times 24
+  matrix of integers mod 3.
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_load_a(uint8_t *pm, mmv_fast_Amod3_type *pa)
+{
+    // This works for GCC only!!!
+    mmv_fast_row32_type *pa1;
+    uint8_t *pb;
+    uint32_t i, j;
+
+    mm_axis3_fast_init(pa);
+    pa1 = pa->a;
+    pb = pa1->b;
+    pa->p_source = NULL;
+    pa->diag = pa->dim_img = pa->mode_B = pa->row_source = -1;
+    for (i = 0; i < 24; ++i) {
+        for (j = 0; j < 24; ++j) pb[j] = pm[j] & 3;
+        pb += 32; pm += 24;
+    }
+    pa->norm  = mm_axis3_norm_mod3(pa->a);
+    return (int32_t)(pa->norm);
+}
+
+
+// %%EXPORT p
+void mm_axis3_fast_copy(mmv_fast_Amod3_type *psrc, mmv_fast_Amod3_type *pdest)
+{
+    mm_axis3_fast_init(pdest);
+    memcpy(pdest->a, psrc->a, 48 * sizeof(mmv_fast_row32_type));
+    pdest->p_source = psrc->p_source;
+    pdest->row_source = psrc->row_source;
+    pdest->sub_row_source = psrc->sub_row_source;
+    pdest->norm = psrc->norm;
+    pdest->diag = psrc->diag;
+    pdest->dim_img = psrc->dim_img;
+    pdest->mode_B = psrc->mode_B;
+    memcpy(pdest->len_B, psrc->len_B, sizeof(psrc->len_B));
+}
+
+
+/**  
+  @brief Declare row as subaxis in part A mod 3 in the monster representation.
+  
+  Here parameter ``pm`` points to structure of type ``mmv_fast_Amod3_type``.
+  A row of a source matrix of type ``mmv_fast_matrix_type`` may be
+  registered in that structure. That row vector usually referes to a 
+  2A axis. This function registers another row ``sub_row`` of that matrix
+  as a subaxis. It returns the number of that subaxis in case of success,
+  and -1 if no subaxis could be registered.
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_load_sub_row(mmv_fast_Amod3_type *pa, uint32_t sub_row)
+{
+     if (pa->p_source == NULL || pa->row_source & (~3) || sub_row & (~3)
+        ||  pa->row_source == sub_row) pa->sub_row_source = -1;
+     else pa->sub_row_source = sub_row;
+     return pa->sub_row_source;
+}
+
+
+
+
+
+// %%EXPORT p
+uint8_t *mm_axis3_fast_data_ptr(mmv_fast_Amod3_type *pa)
+{
+     mmv_fast_row32_type *pa1 = pa->a;
+     uint8_t *pb = pa1->b;
+     return pb;
+}
+
+
+// %%EXPORT p
+mmv_fast_type *mm_axis3_fast_source_ptr(mmv_fast_Amod3_type *pa)
+{
+     mmv_fast_matrix_type *pm = pa->p_source;
+     if (pm == NULL || pm->mode != 1 || pm->p != 3) return NULL;
+     mmv_fast_type **p_buf = pm->p_v.p_vb;
+     mmv_fast_type *p_data = p_buf[pm->current & 1];
+     if (p_data == NULL) return NULL;
+     return p_data; 
+}
+
+
+
+/**********************************************************************
+* Return short Leech lattice vector with nonzero entry
+**********************************************************************/
+
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+#if (defined(__GNUC__) || defined(__clang__)) && 0
+// Store scalar product of vectors v and w in Leech lattice mod 2 to result.
+// Here w must already have been swapped to a covector.
+#define scalprod(v, w, result) \
+   result = __builtin_parity((v) & (w) & 0xffffffUL)
+#else
+#define scalprod(v, w, result) \
+   result = (v) & (w); \
+   result ^= result >> 12; result ^= result >> 6; \
+   result = ((uint64_t)0x6996966996696996ULL >> (result & 0x3f)) & 1
+#endif
+/// @endcond
+
+
+/**  
+  @brief Return short Leech lattice vector with nonzero entry
+
+  If a source vector in the Griess algebra is stored in the
+  structure ``pa`` of type ``mmv_fast_Amod3_type`` then we return
+  a random vector ``v`` of the Leech lattice modulo 2 such that
+  the corresponding entry in the source vector in nonzero (mod 3).
+  Parameter ``scalar`` is interpreted as follows:
+
+  Bits 23...0: a vector ``w`` in the  Leech lattice modulo 2
+
+  Bit 24: an element ``k`` of ``GF(2)``
+
+  Bit 25: an boolean value ``small``
+
+  Then we return only vectors ``v`` such that the scalar
+  product ``<v, w>`` is equal to ``k``.
+
+  If  ``small`` is set then we always return a vector in the Leech
+  lattice modulo 2 corresponding to a Golay cocode vector (plus
+  possibly the standard frame \f$\Omega\f$) instead.
+    
+  The function returns a negative value in case of failure. 
+
+  This function has not yet been tested!!! 
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_rand_short_nonzero(mmv_fast_Amod3_type *pa, uint32_t scalar)
+{
+    uint64_t rnd64, prod;
+    uint32_t ext, intern, entry, v, n = 1000000, i, j, c;
+    uint32_t k = (scalar >> 24) & 1;
+    uint32_t small = (scalar >> 25) & 1;
+    scalar =  ((scalar >> 12) & 0xfff) + ((scalar & 0xfff) << 12);
+    mmv_fast_matrix_type *ps = pa->p_source;
+    mmv_fast_type *padata;
+    if (ps == NULL || pa->row_source < 0 ||
+            ps->p != 3 || ps->mode != 1 ) return -2;
+    padata = ps->p_v.p_vb[ps->current & 1];
+    if (padata == 0) return -2;
+    do {
+        if (small) {
+            rnd64 = gen_rng_modp(24 << 24, pa->seed);
+            i = (uint32_t)(rnd64 >> 24);
+            rnd64 = (rnd64 & 0xffffffULL) * 24;
+            j = (uint32_t)(rnd64 >> 24);
+            if (i == j) continue;
+            c = (uint32_t)(rnd64 >> 23) & 1;
+            intern = ((24 + 24*c + i) << 5) + j;
+            entry = ((uint8_t*)padata)[intern] >> (2 * pa->row_source);
+            if ((entry + 3) & 2) continue;
+            v = mat24_vect_to_cocode((1 << i) ^ (1 << j)) | (c << 23);
+        } else {
+            ext = gen_rng_modp(98280, pa->seed) + 300;
+            intern = mm_aux_index_extern_to_intern(ext);
+            if (intern & 0xff000000UL) continue;
+            entry = ((uint8_t*)padata)[intern] >> (2 * pa->row_source);
+            if ((entry + 3) & 2) continue;
+            v = mm_aux_index_intern_to_leech2(intern);
+            if (v == 0) continue;
+        }
+        scalprod(v, scalar, prod);
+        if  (prod != k) continue;
+        return v;
+    } while (--n); // we dont't want an endless loop
+    return -1;
+
+}
+
+
+
+
+
+/**********************************************************************
+* Echelonize data in a structure of type mm_axis3_fast_type
+**********************************************************************/
+
+/**  
+  @brief Subtract multiple of diagonal matrix
+
+  In the structure referred by ``pa`` Let ``M`` be the matrix ``A``
+  if ``no_copy`` is zero and the matrix ``B`` otherwise. Let ``U``
+  be the 24 times 24 unit matrix. The function stores ``M - d * U``
+  in the matrix ``B`` in that structure.
+*/
+// %%EXPORT p
+void mm_axis3_fast_subtract_diag(mmv_fast_Amod3_type *pa, uint32_t d, uint32_t no_copy)
+{
+    static uint8_t B[6] = {0x11, 0x12, 0x10, 0x11, 0x12, 0x10};
+    uint8_t *pB = B + 2 - d, *pd = (pa->a)[24].b;
+    uint32_t i, j, copy = no_copy ? 24 : 0;
+    pa->diag = (uint8_t)(d % 15);
+    pa->dim_img = pa->mode_B = -1;
+    d = pa->diag % 3;
+ #ifdef GCC_VECTORS
+    v32_8_type *pa0 = &((pa->a)[copy].v32[0]);
+    v32_8_type *pa1 = &((pa->a)[24].v32[0]);
+    for (i = j = 0; i < 24; ++i, j += 33) {
+        pa1[i] = pa0[i] & 3;
+        pd[j] = pB[pd[j]];
+    }
+ #else
+    uint64_t *pa0 = &((pa->a)[copy].u64[0]);
+    uint64_t *pa1 = &((pa->a)[24].u64[0]);
+    for (i = j = 0; i < 24*4; i +=4, j += 33) {
+        pa1[i] = pa0[i] & 0x0303030303030303ULL;
+        pa1[i+1] = pa0[i+1] & 0x0303030303030303ULL;
+        pa1[i+2] = pa0[i+2] & 0x0303030303030303ULL;
+        pd[j] = pB[pd[j]];
+    }
+ #endif
+}
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+
+static inline int32_t
+echelon3(mmv_fast_row32_type *pa, uint32_t nrows)
+/* Echelonize a nrows times 24 matrix A of integers mod 3
+
+Entry A[i, j] of the matrix is in bits 1 and 0 of pa[i].v32[j].
+Row operations for echelonizing matrix A are also applied to a
+matrix B of the same shape with entries B[i, j] of the matrix is
+in bits 5 and 4 of pa[i].v32[j].
+
+The function returns the number of nonzero rows of matrix A.
+*/
+{
+    // This work with GCC only!!!
+    uint8_t col,  piv;
+    v32_8_type *pa1 = pa->v32; 
+    v32_8_type r, *p_row = pa1, piv_row[4], *p_cur, *p_end = pa1 + nrows;
+    memset(piv_row, 0, sizeof(piv_row));
+    
+    for (col = 0; col < 24; ++col) {
+         for (p_cur = p_row; p_cur < p_end; ++p_cur)   {
+             r = p_cur[0];
+             piv = r[col];
+             if ((piv + 1) & 2) {
+                 p_cur[0] = p_row[0];
+                 piv_row[1 + (piv & 1)] = p_row[0] =  r;
+                 piv_row[2 - (piv & 1)] = r ^ 0x33;
+                 p_cur += (p_row == p_cur);
+                 p_row += 1;
+                 if (p_row >= p_end) return p_row - pa1;
+                 for (; p_cur < p_end; ++p_cur)   {
+                     r = p_cur[0];
+                     piv = r[col] & 3;
+                     r += piv_row[piv]; 
+                     r += (r & 0x44) >> 2;
+                     p_cur[0] = r & 0x33;
+                 }
+                 break;
+             }
+         }  
+    }
+    return p_row - pa1; 
+}
+
+
+
+
+/// @endcond 
+
+
+
+// %%EXPORT p
+int32_t mm_axis3_fast_echelon(mmv_fast_Amod3_type *pa, uint32_t d)
+{
+    // This work with GCC only!!!
+    mm_axis3_fast_subtract_diag(pa, d, 0);
+    pa->dim_img = (int8_t)(echelon3(pa->a + 24, 24));
+    pa->mode_B = 4;
+    pa->len_B[0] = pa->len_B[1]  = -1;
+    return (int32_t)(pa->dim_img);
+}
+
+
+/**********************************************************************
+* Compute Kernel and image in a structure of type mm_axis3_fast_load
+**********************************************************************/
+
+static inline 
+int32_t intersect(mmv_fast_row32_type *pa, mmv_fast_row32_type *buf, uint32_t dim_img)
+{
+    // This work with GCC only!!!
+    mmv_fast_row32_type row;
+    uint32_t i, len_isect;
+    int32_t status;
+    if (dim_img > 24) return -110;
+    // Use Zassenhaus algorithm for computing intersection
+    for (i = 0; i < dim_img; ++i) {
+        row.v32[0] = pa[i].v32[0] & 3;
+        buf[i].v32[0] = row.v32[0] | (row.v32[0] << 4);
+    } 
+    for (i = dim_img; i < 24; ++i) {
+        buf[i].v32[0] = pa[i].v32[0] & 3;
+    }
+    status = echelon3(buf, 24);
+    // Intersection is now in high nibbles of entries buf[status...23]
+    if (status < 0) return status;
+    if (status > 24) return -111;
+    len_isect = 24 - status;
+    for (i = 0; i < len_isect; ++i) {
+        buf[i].v32[0] = (buf[i + status].v32[0] >> 4) & 3;
+    }
+    return len_isect; 
+}
+
+
+static inline 
+void reverse32(mmv_fast_row32_type arr[], uint32_t start, uint32_t end)
+{
+    while (start < end) {
+        mmv_fast_row32_type temp = arr[start];
+        arr[start] = arr[end];
+        arr[end] = temp;
+        start++;
+        end--;
+    }
+}
+
+// %%EXPORT p
+int32_t mm_axis3_fast_intersect(mmv_fast_Amod3_type *pa, uint32_t mode_B)
+{
+    // This work with GCC only!!!
+    mmv_fast_row32_type *pa1 = pa->a + 24, buf[24];
+    uint32_t i, dim_img = pa->dim_img, len_isect = 0;
+    if (dim_img > 24) return -105;
+
+    if (pa->mode_B == 4) {
+        for (i = 0; i < dim_img; ++i) pa1[i].v32[0] &= 3;
+        for (i = dim_img; i < 24; ++i) {
+            pa1[i].v32[0] = (pa1[i].v32[0] >> 4) & 3;
+        }
+        pa->mode_B = 0;
+        pa->len_B[0] = dim_img;
+        pa->len_B[1] = 24 - dim_img;         
+    }
+
+    if (pa->mode_B >= 4) return -101;
+    if (mode_B >= 4) return -102;
+
+    if (mode_B & 2) {
+        int32_t status = intersect(pa1, buf, dim_img);
+        pa->len_B[1] = len_isect = status;
+        if (status < 0) return -103;
+        if (status > dim_img || status > 24 - dim_img ) return -104;
+    }
+    if (mode_B & 1) {
+        reverse32(pa1, 0, 23);
+        pa->len_B[0] = 24 - dim_img;         
+        pa->len_B[1] = dim_img;
+        reverse32(pa1, dim_img, 23);
+    }
+    if (mode_B & 2) {
+        uint32_t st_pa = pa->len_B[0];
+        for (i = 0; i < len_isect; ++i) {
+            pa1[st_pa + i] = buf[i];
+        }
+        pa->len_B[1] = len_isect;
+    }
+
+    pa->mode_B = mode_B;
+    return mode_B;
+}
+
+
+/**********************************************************************
+* Convert row vector to Leech lattice mod 3 representation
+**********************************************************************/
+
+
+
+
+static inline uint64_t row_mod3_to_leech3(mmv_fast_row32_type v)
+{
+    uint64_t res = 0;
+    #if defined(GCC_VECTORS)
+        v.v32[0] &= 3;
+    #else
+        v.u64[0] &= 0x0303030303030303ULL;
+        v.u64[1] &= 0x0303030303030303ULL;
+        v.u64[2] &= 0x0303030303030303ULL;
+    #endif
+     
+    #if defined(GCC_AVX2)
+        __m256i a = v.m256[0];
+        uint64_t hi, lo, mask;
+        lo = _mm256_movemask_epi8(_mm256_slli_epi16(a, 7)) & 0xffffffUL;
+        hi = _mm256_movemask_epi8(_mm256_slli_epi16(a, 6)) & 0xffffffUL;
+        mask = hi & lo;
+        res = ((hi ^ mask) << 24 ) + (lo ^ mask);     
+    #else
+      uint64_t t;
+      #if  defined(ENDIANESS)
+        #if ENDIANESS == 0
+          #define X 0
+          #define SEQ    0,  8, 16,  1,  9, 17, -1, -1, \
+                         2, 10, 18,  3, 11, 19, -1, -1, \
+                         4, 12, 20,  5, 13, 21, -1, -1, \
+                         6, 14, 22,  7, 15, 23, -1, -1
+        #else
+          #define X 7
+          #define SEQ   -1, -1, 17,  9,  1, 16,  8,  0, \
+                        -1, -1, 19, 11,  3, 18, 10,  2, \
+                        -1, -1, 21, 13,  5, 20, 12,  4, \
+                        -1, -1, 23, 15,  7, 22, 14,  6
+        #endif
+        mmv_fast_row32_type r;
+        #if defined(GCC_VECTORS)
+          v32_8_type MASK = {SEQ};
+          r.v32[0] =  __builtin_shuffle(v.v32[0], MASK);
+        #else
+          // %%FOR* j in range(4)
+          // %%FOR* k in range(3)
+          r.b[%{int:8*j + k} ^ X] = v.b[%{int:2*j + 8*k}];
+          r.b[%{int:8*j + k + 3} ^ X] = v.b[%{int:2*j + 8*k + 1}];
+          // %%END FOR
+          // %%END FOR
+        #endif
+        #undef SEQ
+        #undef X
+        // %%FOR* j in range(4)
+        res += r.u64[%{j}] << %{int:2*j};
+        // %%END FOR
+      #else
+        // %%FOR* j in range(0, 24, 2)
+        res += (uint64_t)(v.b[%{int:j}]) << %{int:j};
+        res += (uint64_t)(v.b[%{int:j+1}]) << %{int:j+24};
+        // %%END FOR
+      #endif
+      res &= 0xffffffffffffULL;
+      t = res & (res >> 1) & 0x555555555555ULL;
+      res ^= t ^ (t << 1);
+      t = (res ^ (res >> 23)) & 0xaaaaaaULL;
+      res ^= t ^ (t << 23); 
+    #endif 
+    return res;
+}
+
+
+
+
+
+/** 
+  @brief Return vector in Leech lattice mod 3 in structure given by ``pa``
+
+  The function returns the row vector A[i] (if i < 24) or B[i - 24]
+  (if i >= 24) in the matrix A or B in that structure. The vector is
+  returned in *Leech lattice mod 3 encoding*; it is reduced (modulo 3).
+*/
+// %%EXPORT p
+uint64_t mm_axis3_fast_to_leech_mod3(mmv_fast_Amod3_type *pa, uint32_t i)
+{
+    mmv_fast_row32_type v = (pa->a)[i];
+    return row_mod3_to_leech3(v);
+}
+
+
+/**********************************************************************
+* Store a row vector in structure pf type mmv_fast_Amod3_type
+**********************************************************************/
+
+/** 
+  @brief Store a row vector in the structure given by ``pa``
+
+  The function stores the vector ``v3`` at the  the row vector A[i]
+  (if i < 24) or B[i - 24]  (if i >= 24) in the matrix A or B in that
+  structure. The vector ``v3`` must be given
+  in *Leech lattice mod 3 encoding*;.
+*/
+// %%EXPORT p
+void mm_axis3_fast_store_row_mod3(mmv_fast_Amod3_type *pa, uint32_t i, uint64_t v3)
+{
+    uint8_t *b = (pa->a)[i].b;
+    uint64_t v3h = v3 >> 23;
+    uint32_t j;
+    if (i >= 48) return;
+    for (j = 0; j < 24; ++j) {
+        b[j] = (uint8_t)(((v3h >> j) & 2) + ((v3 >> j) & 1));
+    }
+}
+
+
+
+
+
+/**********************************************************************
+* Return random vector in a subspace
+**********************************************************************/
+
+/**
+   @brief Add a (possibly negated) row of a matrix to another row
+
+   Write ``B`` for the 24 times 24 matrix B stored  the structure
+   referred by ``pa``. Let ``B[k], 0 <= k < 24`` be the k-th row of
+   matrix ``B``. The function adds ``(-1)**signs * B[j]`` to ``B[i]``.
+   The entries of row ``B[i]`` are reduced modulo 3. Only the lowest
+   two bits of inprut rows ``B[i]`` and ``B[j]`` are considered.   
+*/
+static inline void
+_addsub(mmv_fast_Amod3_type *pa, uint32_t i, uint32_t j, uint32_t signs)
+{
+  #if defined(GCC_VECTORS)
+    v32_8_type pa_i = (pa->a)[24+i].v32[0];
+    v32_8_type pa_j = (pa->a)[24+j].v32[0];
+    if (signs & 1) pa_j ^= 0x3;
+    pa_i += pa_j;
+    pa_i += (pa_i & 0x4) >> 2;
+    pa_i &= 3;
+    (pa->a)[24+i].v32[0] = pa_i;
+  #else
+    uint64_t *pa_i = (pa->a)[24+i].u64;
+    uint64_t *pa_j = (pa->a)[24+j].u64;
+    #define MASK3 0x0303030303030303ULL
+    #define MASK4 0x0404040404040404ULL
+    uint64_t signmask = signs & 1 ? MASK3 : 0, r;
+    // %%FOR* k in range(3)
+    r = (pa_i[%{k}] & MASK3) + ((pa_j[%{k}] & MASK3) ^ signmask);
+    r += (r & MASK4) >> 2;
+    pa_i[%{k}] = r & MASK3;
+    // %%END FOR
+    #undef MASK4 
+    #undef MASK3 
+  #endif
+}
+
+
+/**
+   @brief Return random vector in a subspace
+ 
+   The function returns a random vector in the subpace spanned
+   by ``(pa->a)[24+i], 0 <= i < dim``. This modifies the basis of
+   that subspace. The returned vector has norm ``n`` (mod 3).
+   Here ``n`` must be 0, 1, 2, or 4. 
+
+   The function performs ``adv`` random steps before returning
+   a vector. The function returns a random vector 
+   in *Leech lattice mod 3 encoding* or a negative value in case
+   of error. In the special case ``n == 4`` the function selects a
+   random vector that is of type 4 also in the Leech lattice mod 2,
+   and returns that vector as a vector in the Leech lattice mod 2
+   in *Leech lattice encoding*.
+*/
+// %%EXPORT p
+int64_t mm_axis3_fast_rand_v(mmv_fast_Amod3_type *pa, uint32_t dim, uint32_t n, uint32_t adv)
+{
+    uint64_t rnd = 0, v, v4;
+    uint32_t i, j, s, k, w, special4 = n == 4;
+    n %= 3;
+    if (dim < 2 || dim > 24) return -2;
+    pa->diag = pa->dim_img =  pa->mode_B = -1;
+    for (k = 0; k < 10000 + adv; ++k) {
+        if ((k & 1) == 0) rnd = gen_rng_modp(0, pa->seed);
+        rnd *= dim;
+        i = (uint32_t)(rnd >> 32); 
+        rnd = (rnd & 0xffffffffUL) * dim;
+        j = (uint32_t)(rnd >> 32);
+        s = (uint32_t)((rnd >> 31) & 1);
+        rnd = (rnd << 2) & 0xffffffff;
+        if (i == j) continue;
+        // There is no reason to ditinguish beteween a random
+        // vector mod 3 and its negative. 
+        _addsub(pa, i, j, s);
+        if (k < adv) continue;
+        v = row_mod3_to_leech3((pa->a)[24+i]);
+        w = (uint32_t)((v ^ (v >> 24)) & 0xffffff);
+        if (mat24_bw24(w) % 3 == n) {
+            if (!special4) return v;
+            v4 = gen_leech3to2(v);
+            if ((v4 >> 24) != 4) continue;
+            return v4 & 0xffffffUL;            
+        }
+    }
+    return -3;
+}
+
+
+/********************************************************************
+*  Operation of the group G_x0
+********************************************************************/
+
+/**  
+  @brief Operation of the group G_x0 on a 24 times 24 matrix
+
+  Let \f$g\f$ ba an element of the group \f$G_{x0}\f$ length in the
+  array ``g`` of length ``len_g``.  
+
+  In the structure referred by ``pa`` let \f$M\f$ be the matrix ``A``
+  if ``no_copy`` is zero and the matrix ``B`` otherwise. The function
+  computes the transformed matrix \f$M^g\f$ and stores that matrix
+  the matrix ``B`` in that structure.
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_op_G_x0(mmv_fast_Amod3_type *pa, uint32_t *g, uint32_t len_g, uint32_t no_copy)
+{
+    uint32_t i;
+    int32_t status;
+    pa->diag = pa->dim_img =  pa->mode_B = -1;
+    if (!no_copy) {
+        for (i = 0; i < 24; ++i) pa->a[i+24].v32[0] = pa->a[i].v32[0] & 3; 
+    }
+    status = mm_op_fast_word_A_mod_3(pa->a + 24, g, len_g);
+    if (status < 0) return status;
+    for (i = 0; i < 24; ++i) pa->a[i+24].v32[0] &= 3;
+    return 0;
+}
+
+
+/********************************************************************
+*  Pivot with scalar product 
+********************************************************************/
+
+
+/**  
+  @brief Scalar product of vectors v1 and v2 (mod 3)
+
+  Only the first 24 entries and the lowest two bits of the entries of
+  vectors v1 and v2 are taken as input for the scalar product. The
+  result is reduced modulo 3.
+*/
+static inline 
+uint32_t row_mod3_scalprod24(mmv_fast_row32_type v1, mmv_fast_row32_type v2)
+{
+    uint64_t a, b, m_and, m_xor, result;
+    a = (v1.u64[0] & 0x0303030303030303ULL)
+      + ((v1.u64[1] & 0x0303030303030303ULL) << 2)
+      + ((v1.u64[2] & 0x0303030303030303ULL) << 4);
+    b = (v2.u64[0] & 0x0303030303030303ULL)
+      + ((v2.u64[1] & 0x0303030303030303ULL) << 2)
+      + ((v2.u64[2] & 0x0303030303030303ULL) << 4);
+    m_and = (b ^ (b >> 1)) & 0x5555555555555555ULL;
+    m_and |= m_and << 1;
+    m_xor = b & 0xAAAAAAAAAAAAAAAAULL;
+    m_xor |= m_xor >> 1;
+    result = (a ^ m_xor) & m_and;
+    return (uint32_t)(result % 3);
+}
+
+
+/**  
+  @brief Orthogonal compleent of subpace of Leech latice mod 3
+
+  Write ``B`` for the 24 times 24 matrix B stored in the structure
+  referred by ``pa``. Let ``B[j]`` be the j-th row of matrix ``B``.
+  The function changes the vectors ``B[i], 0 <= i < n`` so that all
+  of them are orthogonal to the vector ``B[n-1]``. Therefore the
+  function chooses the highest ``k`` such that ``B[k]`` is not
+  orthogonal to ``B[n-1]`` and subtracts a multiple of ``B[k]``
+  from all vectors ``B[i], 0 <= i < n`` such that ``B[i]`` will
+  be orthogonal to ``B[n-1]``.
+
+  The function returns the index ``k`` of the chosen vector ``B[k]``.
+  It returns -1 if all vectors ``B[i]`` are orthogonal to ``B[n-1]``.
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_orthognal(mmv_fast_Amod3_type *pa, uint32_t n)
+{
+    int32_t i, k = -1, sgn = 0, sgn1;
+    mmv_fast_row32_type *pm = pa->a + 24;
+    if (n > 24) n = 24;
+    for (i = n-1; i >= 0; --i) {
+        sgn = row_mod3_scalprod24(pm[n-1], pm[i]);
+        if (sgn) goto found;
+    }
+    return -1;
+found:
+    k = i--;
+    ++sgn;
+    for ( ; i >= 0; --i) {
+        sgn1 = row_mod3_scalprod24(pm[n-1], pm[i]);
+        if (sgn1) _addsub(pa, i, n-1, sgn ^ sgn1);
+    }
+    return k;
+}
+
+
+
+
+/// @endcond 
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

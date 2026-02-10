@@ -1,0 +1,352 @@
+/** @file mm_axis3_case10A.c
+
+Delas with axes of axos type 10A
+
+*/
+
+#include <stdlib.h>
+#include <stdint.h>
+#include "mat24_functions.h"
+#define MMGROUP_GENERATORS_INTERN
+#include "mmgroup_generators.h"
+#include "clifford12.h"
+#include "mm_op_fast.h"
+#include "mm_op_fast_intern.h"
+#include "mm_op_sub.h"   
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT 
+//  %%GEN c
+
+
+
+
+/**********************************************************************
+* Tables for dealing with case 10A
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+typedef struct s_case_10A_type{
+    uint32_t v2;
+    uint32_t v23[2];
+    uint32_t v3type;
+    uint32_t vshort[100];
+} case_10A_type;
+
+
+
+static uint32_t A_V4[] = { // array of encoded type-4 vectors 
+    // %%TABLE MM_AXIS3_CASE10A_VTYPE2, uint32
+};
+
+/// @endcond 
+
+
+
+
+ 
+
+
+/**********************************************************************
+* Load data into a structure of type mm_axis3_fast_load
+**********************************************************************/
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+
+
+/**  
+  @brief Extract information for axis of type 10A
+*/
+static inline int32_t analyze_case_10A(
+    mmv_fast_Amod3_type *pa, case_10A_type *ps)
+{
+    uint32_t status = 0, i, g[12];
+    if (pa->p_source == NULL || pa->row_source < 0 || 
+        pa->norm != 1 || pa->diag != 0) return -11;
+    if (mm_axis3_fast_intersect(pa, 0) != 0) return -12;
+    if (pa->len_B[1] != 2) return -13;
+    uint64_t v3[4];
+    v3[0] = mm_axis3_fast_to_leech_mod3(pa, 46);
+    v3[1] = mm_axis3_fast_to_leech_mod3(pa, 47);
+    v3[2] = gen_leech3_add(v3[0], v3[1]);
+    v3[3] = gen_leech3_add(v3[0], v3[2]);
+    for (i = 0; i < 4; ++i) {
+        int32_t v = gen_leech3to2(v3[i]);
+        switch(v >> 24) {
+            case 2:
+                ps->v2 = v & 0xffffff;
+                status |= 1;
+                break;
+            case 3:
+                if (status & 2) {
+                    ps->v23[1] = v & 0xffffff;
+                    status |= 4;
+                } else {
+                    ps->v23[0] = v & 0xffffff;
+                    status |= 2;
+                }
+                break;
+            default:
+                if (v < 0) {
+                    int64_t l = gen_leech3_reduce_leech_mod3(v3[i], g);
+                    if (l < 0) return -14;
+                    if ((l & 0xffffffffffffULL) != 0x1f3) return (-0x80000000 | l);
+                    uint32_t len_g = (uint32_t)(l >> 48);
+                    mm_group_invert_word(g, len_g);
+                    if (mm_axis3_fast_transform_fix_leech2(A_V4, g, len_g,
+                         ps->vshort, 100) != 100) return -15;
+                    uint32_t supp = (uint32_t)((v3[i] ^ (v3[i] >> 24)) & 0xffffff);
+                    ps->v3type = mat24_vect_type(supp);
+                    status |= 8;
+                }
+        }
+    }
+    if (status != 0xf) return -200 - status;
+    return 0;
+}
+
+/// @endcond 
+
+
+
+/**********************************************************************
+* intermediate function for testing
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+/**  
+  @brief Yet to be documented!!!!!
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_analyze_case_10A(mmv_fast_Amod3_type *pa, uint32_t *buf, uint32_t l_buf)
+{
+    case_10A_type s;
+    int32_t status = analyze_case_10A(pa, &s);
+    if (status < 0) return status;
+    if (l_buf < sizeof(s) / sizeof(uint32_t)) return -2;
+    memcpy(buf, &s, sizeof(s));
+    return sizeof(s) / sizeof(uint32_t);
+}
+
+
+/// @endcond 
+
+
+
+
+/**********************************************************************
+* Strategies for a single axis
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+#define CODE_10A (10 << 25)
+
+int32_t strategy100(mmv_fast_Amod3_type *pa, case_10A_type *ps)
+{
+    uint32_t v_min = 0xffffffffUL, i;
+    for (i = 0; i < 100; ++i) {
+        uint32_t v = (ps->vshort[i] ^ ps->v2) & 0xffffffUL;
+        v ^= gen_leech2_coarse_subtype_inline(v) << 24;
+        if (v < v_min) v_min = v;
+    }
+    return CODE_10A + (v_min & 0xffffffUL);
+}
+
+
+/// @endcond 
+
+
+
+
+/**********************************************************************
+* Strategy for a pair of axes
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+
+
+static void encode_sorted(uint32_t *vlist, uint32_t len)
+{
+    uint32_t i;
+    for (i = 0; i < len; ++i) {
+        uint32_t v = vlist[i];
+        v = (v & 0x7ff7ffUL) + ((v >> 12) & 0x800);
+        vlist[i] = v;
+    }
+} 
+
+static uint32_t decode_sorted(uint32_t v)
+{
+     return (v & 0x7ff7ffUL) + ((v & 0x800) << 12);
+}
+
+
+
+int32_t strategy21(mmv_fast_Amod3_type *pa, case_10A_type *ps)
+{
+    uint32_t v_min = 0x1000000 , i, len = 0, v, tp;
+    for (i = 0; i < 100; ++i) {
+        v = ps->vshort[i];
+        if  ((v & 0x800) == 0) ps->vshort[len++] = v;
+        else {
+            v ^= ps->v2; 
+            if (v < v_min) {
+                tp = gen_leech2_coarse_subtype_inline(v);
+                if (tp == 3) v_min = v;
+            }
+        }
+    }
+    if (v_min >= 0x1000000) return -7; 
+    bitvector32_sort(ps->vshort, len);
+    for (i = 0; i < len; ++i) {
+        v = ps->vshort[i] ^ v_min;
+        tp = gen_leech2_coarse_subtype_inline(v);
+        if  (tp == 3) return CODE_10A + v;
+    }
+    return -8;
+}
+
+
+
+
+
+int32_t strategy22(mmv_fast_Amod3_type *pa, case_10A_type *ps)
+{
+    uint32_t i, len = 0, cur = 0, buf[100+1];
+    uint32_t m = ((ps->v23[0] >> 11) & 1) ^ 1;
+    for (i = 0; i < 100; ++i) {
+        uint32_t v = ps->vshort[i];
+        if  (((v & 0x800) >> 11) ^ m) {
+            ps->vshort[len] = v;
+            buf[len++] = v ^ ps->v2;
+        }
+    } 
+    encode_sorted(ps->vshort, len);
+    bitvector32_sort(ps->vshort, len);
+    encode_sorted(buf, len);
+    bitvector32_sort(buf, len);
+    buf[len] = 0xffffffff;
+    for (i = 0; i < 100; ++i) {
+         uint32_t hi1 = ps->vshort[i] & 0x7ff000, hi2;
+         while ((hi2 = (buf[cur] & 0xfff000)) < hi1) ++cur;
+         if (hi1 == hi2) {
+             return CODE_10A + decode_sorted(ps->vshort[i] ^ buf[cur]);
+         }
+    }
+    return -1021;
+}
+
+
+
+
+int32_t strategy22_T13(mmv_fast_Amod3_type *pa, case_10A_type *ps)
+{
+    uint32_t i, len = 0, v_ref = 0;
+    for (i = 0; i < 2; ++i) {
+        if (gen_leech2_coarse_subtype_inline(ps->v23[i]) == 6) {
+            v_ref = ps->v23[i] & 0x7ff800ULL; 
+        }
+    }
+    if (v_ref == 0) return -7;
+    for (i = 0; i < 100; ++i) {
+        uint32_t v = ps->vshort[i];
+        if  ((v & 0x7ff800ULL) == v_ref) ps->vshort[len++] = v;
+    }
+    return CODE_10A + (ps->vshort[0] ^ ps->vshort[1] ^ ps->v2);
+}
+
+
+int32_t strategy20(mmv_fast_Amod3_type *pa, case_10A_type *ps)
+{
+    uint32_t t3 = ps->v3type, i, len = 0, last = 0xffffffff;
+    uint32_t m = t3 != 22;
+    if (t3 == 0x20 + 7) return CODE_10A + 0x800000;
+    for (i = 0; i < 100; ++i) {
+        uint32_t v = ps->vshort[i];
+        if  (((v & 0x800) >> 11) ^ m) ps->vshort[len++] = v;
+    } 
+    encode_sorted(ps->vshort, len);
+    bitvector32_sort(ps->vshort, len);
+    for (i = 0; i < len; ++i) {
+        if ((ps->vshort[i] & 0x7ff000) == last) {
+            uint32_t v = decode_sorted(ps->vshort[i]) ^
+                         decode_sorted(ps->vshort[i-1]) ^ ps->v2;
+            return CODE_10A + v;      
+        }
+        last = ps->vshort[i]  & 0x7ff000; 
+    }
+    return -1020;
+}
+
+
+
+
+
+/// @endcond 
+
+
+
+/**********************************************************************
+* The final exported function of this module
+**********************************************************************/
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+
+/**  
+  @brief Yet to be documented!!!!!
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_find_v4_case_10A(mmv_fast_Amod3_type *pa, uint32_t v2)
+{
+    case_10A_type s;
+    int32_t status = analyze_case_10A(pa, &s);
+    if (status < 0) return status;
+    if (v2 == 0) {
+        int32_t t = gen_leech2_coarse_subtype_inline(s.v2);
+        switch(t) {
+            case 5:
+                return strategy21(pa, &s); 
+            case 3:
+                if (s.v3type == 2 * 0x20 + 13) 
+                    return strategy22_T13(pa, &s);
+                else return strategy22(pa, &s); 
+            case 2:
+                return strategy20(pa, &s);
+            default:
+                return -202;
+        }
+    } else {
+        return strategy100(pa, &s); 
+    }
+}
+
+
+
+/// @endcond 
+
+
+
+/**********************************************************************
+* end of C functions
+**********************************************************************/
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

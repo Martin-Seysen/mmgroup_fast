@@ -1,0 +1,10 @@
+#include "mm_op_fast.h"
+#include <stdio.h>
+#include "mat24_functions.h"
+
+
+// %%EXPORT px
+uint32_t fast_lsbit24(uint32_t v1)
+{
+   return mat24_lsbit24(v1);
+}

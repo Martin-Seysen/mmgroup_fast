@@ -1,0 +1,627 @@
+#define MM_OP_FAST_PERMUTATIONS
+#include <stdlib.h>
+#include <stdio.h>
+#include "mm_op_fast.h"
+#include "mat24_functions.h"
+
+
+
+
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT 
+//  %%GEN c
+
+
+
+/***************************************************************************
+** Function mm_op_fast_neg_scalprod_mma0
+***************************************************************************/
+
+#define F 0xff 
+static mmv_fast_row32_type TAB0[12] ALIGNED(32) = {
+// %%SCALAR_PROD_2048_PWR2_TABLE  11
+};
+static uint8_t iTAB1[16] = {
+// %%SCALAR_PROD_2048_INDEX_TABLE  128, 8
+};
+static uint8_t iTAB2[16] = {
+// %%SCALAR_PROD_2048_INDEX_TABLE  2048, 128
+};
+#undef F
+
+
+
+
+
+
+
+
+// %%EXPORT p
+void mm_op_fast_neg_scalprod_mma0(mmv_fast_type *p)
+{
+     ASSUME_ALIGNED(p, 64);
+     mmv_fast_row32_type *pv 
+         = (mmv_fast_row32_type *)(p->v32 + MM_AUX_OFS_X/32);
+     ASSUME_ALIGNED(pv, 32);
+     mmv_fast_row32_type ALIGNED(32) d, ALIGNED(32) r0, ALIGNED(32) r1, ALIGNED(32) r2;
+     DUMP("neg_scalprod %p", p);
+     uint_fast32_t i, j, ind;
+     memset(&d, 0, 32);
+     r0 = TAB0[1]; r1 = TAB0[2]; r2 = TAB0[3]; 
+     for (i = 0; i < 16; ++i) {
+         for (j = 0; j < 16; ++j) {
+             // %%FOR* r in ['r0', 'r1', 'r0', 'r2', 'r0', 'r1', 'r0']
+             mmv_row24_xor(*pv, d, pv);
+             mmv_row24_xor(d, %{r}, &d);
+             ++pv;
+             // %%END FOR
+             mmv_row24_xor(*pv, d, pv);
+             ++pv;
+             ind = iTAB1[j];
+             mmv_row24_xor(d, TAB0[ind], &d);
+         }
+         ind = iTAB2[i];
+         mmv_row24_xor(d, TAB0[ind], &d);
+     }
+     // printf("neg-scal 9\n"); fflush(stdout);
+}
+
+
+// Auxliary function for generator 't', tags 'XYZ', is easy to implement here
+// %%EXPORT
+void mm_op_fast_neg_op_t_mma0(mmv_fast_row32_type *p_in, mmv_fast_row32_type *p_out, uint32_t mode)
+{
+    ASSUME_ALIGNED(p_in, 32);
+    ASSUME_ALIGNED(p_out, 32);
+    const uint16_t *p_theta =  MAT24_THETA_TABLE; 
+    mmv_fast_row32_type ALIGNED(32) d,  ALIGNED(32) r0,  ALIGNED(32) r1,  ALIGNED(32) r2;
+    mmv_fast_row32_type ALIGNED(32) row0, ALIGNED(32) row1, ALIGNED(32) row2;
+    mmv_fast_row32_type ALIGNED(32) row3, ALIGNED(32) row4, ALIGNED(32) row5;
+    mmv_fast_row32_type ALIGNED(32) row6, ALIGNED(32) row7;
+    uint_fast32_t i, j, ind, mode_scalar = mode & 1, mode_pwr = mode & 2;
+    memset(&d, 0, 32);
+    r0 = TAB0[1]; r1 = TAB0[2]; r2 = TAB0[3]; 
+
+    // %%WITH* D = ['r0', 'r1', 'r0', 'r2', 'r0', 'r1', 'r0', 'TAB0[ind]']
+    for (i = 0; i < 16; ++i) {
+        for (j = 0; j < 16; ++j) {
+             // %%FOR* k in range(8)
+             row%{k} = p_in[%{k}];
+             // %%END FOR
+             if (mode_scalar) {
+                 ind = iTAB1[j];
+                 // %%FOR* k, reg in zip(range(8), D)
+                 mmv_row24_xor(row%{k}, d, &row%{k});
+                 mmv_row24_xor(d, %{reg}, &d);
+                 // %%END FOR
+             }
+             if (mode_pwr) {
+               #ifdef GCC_VECTORS
+                 uint8_t sign;
+                 // %%FOR* k in range(8)
+                 sign = (uint8_t)(0 - ((p_theta[%{k}] >> 12) & 1));
+                 row%{k}.v32[0] ^= sign;
+                 // %%END FOR
+               #else
+                 uint64_t sign;
+                 // %%FOR* k in range(8)
+                 sign = 0ULL - (uint64_t)((p_theta[%{k}] >> 12) & 1);
+                 // %%FOR* m in range(3)
+                 row%{k}.u64[%{m}] ^= sign;
+                 // %%END FOR
+                 // %%END FOR
+               #endif
+             } 
+             // %%FOR* k in range(8)
+             p_out[%{k}] = row%{k};
+             // %%END FOR
+             p_in += 8; p_out += 8; p_theta += 8;
+        }
+        if (mode_scalar) {
+            ind = iTAB2[i];
+            mmv_row24_xor(d, TAB0[ind], &d);
+        }
+    }
+    // %%END WITH
+}
+
+
+
+
+
+
+
+// %%EXPORT p
+void mm_op_fast_neg_eps_64(mmv_fast_type *p)
+{
+     ASSUME_ALIGNED(p, 64);
+     mmv_fast_row64_type *pvT
+         = (mmv_fast_row64_type *)(p->r64 + MM_AUX_OFS_T/64);
+     ASSUME_ALIGNED(pvT, 64);
+     #define F 0xff 
+     static  mmv_fast_row64_type ALIGNED(64) PERM64_PARITY = {
+     // %%PERMUTE_64_PARITY_TABLE
+     };
+     #undef F
+     uint_fast32_t i;
+     for (i = 0; i < 759; ++i) {
+         mmv_row64_xor(pvT[i], PERM64_PARITY, &pvT[i]); 
+     }
+}
+
+
+/***************************************************************************
+** Function mm_op_fast_op_all_autpl
+***************************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+#ifdef GCC_VECTORS
+  #define parity12(x) (__builtin_parity((x) & 0xfff) & 1)
+#else
+  #define parity12(x) ((0x6996966996696996ULL >> \
+       (((x) ^ ((x) >> 6)) & 0xffffffUL)) & 1)
+#endif  
+
+/// @endcond 
+
+
+
+/**  
+  @brief Vectorized version of function ``mat24_op_all_autpl``.
+  
+  This function performs the same action as
+  function ``mat24_op_all_autpl`` in module ``mat24_functions.c``
+  in the mmgroup package.
+  The function is vectorized. Note that bit 15 of an entry
+  in the output array ``a_out`` is to be ignroed.
+*/
+// %%EXPORT px
+void mm_op_fast_op_all_autpl(uint32_t *m1, uint16_t *a_out)
+{
+    uint_fast32_t i;   // exponential counter: 1, 2, 4, 8,...,0x400
+    uint_fast32_t j;   // counter from 1 to i-1
+    uint_fast32_t ri;  // accumulator for computing a_out[i]
+    uint_fast32_t q;   // q is row log2(i) of bilinear form in m1
+    uint_fast32_t qq;  // difference  a_out[i+j] ^ a_out[i]
+    uint_fast32_t d1;  // difference  a_out[i+j+1] ^ a_out[i+j]
+    uint_fast32_t d2;  // difference  a_out[i+j+2] ^ a_out[i+j]
+    uint_fast32_t d4;  // difference  a_out[i+j+4] ^ a_out[i+j]
+    uint_fast32_t odd; // set to a nonzero value if m1 is odd
+
+    typedef union ALIGNED(16) {
+        uint16_t w[8];
+        uint64_t u64[2]; 
+        v16_8_type v16[1];
+    } union8_16_type; 
+    union8_16_type va, vq, vd;
+    static union8_16_type vmask = {
+        {0x7000, 0x7000, 0x7000, 0x7000, 0x7000, 0x7000, 0x7000, 0x7000}
+    }, vmask_odd = {
+        {0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000, 0x1000}
+    };
+
+
+    odd = m1[11] & 0x1000;
+
+    va.w[0] = 0;
+
+    ri = *m1++;                // row  i1   of  m1
+    q = (ri >> 13) & 0x7ff;
+    ri = (0 - (ri & 0x1000)) ^ (ri & 0xfff) ^ ((ri & 0x800) << 3);
+    va.w[1] = (uint16_t)(ri);
+
+    ri = *m1++;                // row  i1   of  m1
+    q = (ri >> 13) & 0x7ff;
+    ri = (0 - (ri & 0x1000)) ^ (ri & 0xfff) ^ ((ri & 0x800) << 3);
+    d1 = 0 - ((q & 1) << 12); // d1 =  0x7000 * <q[i1], 1>
+    va.w[2] = (uint16_t)(ri);
+    va.w[3] = (uint16_t)(ri ^ d1 ^ va.w[1]);
+
+    ri = *m1++;                // row  i1   of  m1
+    q = (ri >> 13) & 0x7ff;
+    ri = (0 - (ri & 0x1000)) ^ (ri & 0xfff) ^ ((ri & 0x800) << 3);
+    d1 = 0 - ((q & 1) << 12); // d1 =  0x7000 * <q[i1], 1>
+    d2 = 0 - ((q & 2) << 11); // d2 =  0x7000 * <q[i1], 2>
+    va.w[4] = (uint16_t)(ri ^ va.w[0]);
+    va.w[5] = (uint16_t)(ri ^ d1 ^ va.w[1]);
+    va.w[6] = (uint16_t)(ri ^ d2 ^ va.w[2]);
+    va.w[7] = (uint16_t)(ri ^ d1 ^ d2 ^ va.w[3]);
+
+    memcpy(a_out, &va, 8*sizeof(uint16_t));
+
+
+    for (i = 8; i < 0x800; i += i) {
+        // We count i1 from 0 to 10 such that i = 1 << i1.
+        ri = *m1++;                // row  i1   of  m1
+        // Put q = q[i1]
+        q = (ri >> 13) & 0x7ff;
+        // m1[i1], bit 0,..12 is the image of Parker loop element i,
+        // with bit 12 the sign bit. Store sign bit to bits 12...14
+        // of ri. Store image of element i in bits 11...0 of ri.
+        // xor bit 11 of that image to bit 14 of ri. (Note that
+        // the Power map bit is 0 for all basis vectors).
+        ri = (0 - (ri & 0x1000)) ^ (ri & 0xfff) ^ ((ri & 0x800) << 3);
+        d1 = 0 - ((q & 1) << 12); // d1 =  0x7000 * <q[i1], 1>
+        d2 = 0 - ((q & 2) << 11); // d2 =  0x7000 * <q[i1], 2>
+        d4 = 0 - ((q & 4) << 10); // d4 =  0x7000 * <q[i1], 4>
+        vd.w[0] = 0 ^ ri; vd.w[1] = d1 ^ ri;
+        vd.w[2] = d2 ^ ri;  vd.w[3] = d1 ^ d2 ^ ri;
+        vd.w[4] = vd.w[0] ^ d4; vd.w[5] = vd.w[1] ^ d4;
+        vd.w[6] = vd.w[2] ^ d4; vd.w[7] = vd.w[3] ^ d4;
+
+        // Next compute a_out[i+j], 1 <= j < i. We do the
+        // cases j,...,j + 7 in a single iteration for j = 0 mod 8.
+        for (j = 0; j < i; j += 8) {
+            // Store 0x7000 * <q[i1], j> in  qq.
+            qq = parity12(j & q);
+            memcpy(&va, a_out + j, 8*sizeof(uint16_t));
+            #ifdef GCC_VECTORS
+               vq.v16[0] = vmask.v16[0] & (uint8_t)(0 - qq);
+               va.v16[0] ^= vq.v16[0] ^ vd.v16[0];   
+            #else
+               vq.u64[0] = vmask.u64[0] & (0ULL - (uint64_t)qq);
+               va.u64[0] ^= vq.u64[0] ^ vd.u64[0];   
+               va.u64[1] ^= vq.u64[0] ^ vd.u64[1];   
+            #endif
+            memcpy(a_out + i + j, &va, 8*sizeof(uint16_t));
+        }
+    }
+
+
+    if (odd) for (i = 0; i < 0x800 ; i += 8) {
+        memcpy(&va, a_out + i, 8*sizeof(uint16_t));
+        memcpy(&vd, MAT24_THETA_TABLE + i, 8*sizeof(uint16_t));
+        #ifdef GCC_VECTORS
+           va.v16[0] ^= vd.v16[0] & vmask_odd.v16[0];   
+        #else
+           va.u64[0] ^= vd.u64[0] & vmask_odd.u64[0];   
+           va.u64[1] ^= vd.u64[1] & vmask_odd.u64[0];;   
+        #endif
+        memcpy(a_out + i, &va, 8*sizeof(uint16_t));
+    }
+}
+
+
+
+
+/***************************************************************************
+** Functions for preparing the permutation operation in external modules
+***************************************************************************/
+
+
+
+
+/**
+  @brief Compute information for operation \f$x_\epsilon  x_\pi\f$
+  
+  Yet to be documented!!!!!!
+
+  Given an element  \f$x_\epsilon  x_\pi\f$ of the monster by 
+  parameters ``eps`` and ``pi``, the function computes the
+  relevant data for performing that operation on the representation
+  of the monster. These data will be stored in the structure of
+  type ``mmv_fast_op_pi_type`` referred by parameter ``p_op``.
+
+  Caution:
+
+*/
+// buffer referred by p_autpl_next must have size 2048
+// %%EXPORT
+void mmv_fast_prep_pi(uint32_t eps, uint32_t pi, uint16_t *p_autpl_next, mmv_fast_op_pi_type *p_op)
+{
+    uint32_t rep_autpl[12], i;
+    uint8_t perm[32], inv_perm[32];
+    p_op->p_autpl = p_op->p_autpl_ABC;
+    p_op->p_autpl_next = p_autpl_next;
+    p_op->eps = eps & 0xfff;
+    p_op->pi = pi < MAT24_ORDER ? pi : 0;
+    mat24_m24num_to_perm(p_op->pi, perm);
+    mat24_perm_to_iautpl(p_op->eps, perm, inv_perm, rep_autpl);
+    for (i = 24; i < 32; ++i) inv_perm[i] = i;
+    memcpy(&(p_op->inv_perm), inv_perm,32);
+    for (i = 0; i < 24; ++i) {
+        p_op->p_autpl[i] = inv_perm[i] + (eps & 0x800);
+    }
+    mm_op_fast_op_all_autpl(rep_autpl, p_autpl_next);
+    mm_op_fast_prep_shuffle24(perm, &(p_op->perm24)); 
+}
+
+
+
+// buffer p_out must have size 759
+// %%EXPORT
+void mmv_fast_prep_pi_64(mmv_fast_op_pi_type *p_op, mm_fast_sub_op_pi64_type *p_out)
+{
+    mmv_fast_op_pi_row64_in_type ALIGNED(64) r_in;
+    uint_fast32_t i;
+    for (i = 0; i < 759; ++i) {
+        _prep_op_pi_row64_in(i, p_op->eps, p_op->p_autpl_next, &r_in);
+        *p_out++ = _prep_op_pi_row64_index(r_in, p_op->inv_perm);
+    }
+}
+
+
+
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+// buffer p_out must have size 759*7
+// %%EXPORT px
+int32_t mmv_fast_test_prep_pi_64(uint32_t eps, uint32_t pi, uint32_t *p_out)
+{
+    mmv_fast_op_pi_type op;
+    uint16_t autpl[2048];
+    mm_fast_sub_op_pi64_type *buf 
+         = malloc(759 * sizeof(mm_fast_sub_op_pi64_type));
+    if (buf == NULL) return -1;
+    uint_fast32_t i, j;
+    mmv_fast_prep_pi(eps, pi, autpl, &op);
+    mmv_fast_prep_pi_64(&op, buf);
+    for (i = 0; i < 759; ++i) {
+        *p_out++ = buf[i].preimage;
+        for (j = 0; j < 6; ++j) *p_out++ = buf[i].perm[j];
+    }
+    free(buf);
+    return 0;
+}
+
+
+
+// buffer p_out must have size 128
+// %%EXPORT px
+int32_t mmv_fast_test_debug_pi_64(uint32_t row, uint32_t eps, uint32_t pi, uint8_t *p_out)
+{
+    static uint8_t TAB[64] = {
+       6,0,1,0,2,0,1,0, 3,0,1,0,2,0,1,0, 4,0,1,0,2,0,1,0, 3,0,1,0,2,0,1,0, 
+       5,0,1,0,2,0,1,0, 3,0,1,0,2,0,1,0, 4,0,1,0,2,0,1,0, 3,0,1,0,2,0,1,0 
+    };
+    mmv_fast_op_pi_type op;
+    uint16_t autpl[2048];
+    mmv_fast_op_pi_row64_in_type ALIGNED(32) r_in;
+    mmv_fast_row64_type *p_alloc64 = alloca_aligned(2*64, 64);
+    mmv_fast_row64_type ALIGNED(64) entry = p_alloc64[0];
+    mmv_fast_row64_type ALIGNED(64) src_row = p_alloc64[1];
+    mmv_fast_shuffle24_type ALIGNED(64) perm24;
+    // v64_8_type *pv_in = (v64_8_type *)(&src_row);
+    uint_fast32_t i;
+    mm_fast_sub_op_pi64_type index_entry;
+    uint8_t sign, *p_ref_out, acc;
+
+    for (i = 0; i < 64; ++i) src_row.b[i] = i;
+    mmv_fast_prep_pi(eps, pi, autpl, &op);
+    op.p_autpl = op.p_autpl_next;
+    perm24 = _load_op_pi_row64_perm24(&op);
+    _prep_op_pi_row64_in(row, eps, op.p_autpl, &r_in);
+    r_in.src = 0;
+    _prep_op_pi_row64(&r_in, perm24, &src_row, &entry);
+    memcpy(p_out, &entry, 64);
+
+    index_entry = _prep_op_pi_row64_index(r_in, op.inv_perm);
+    sign = (uint8_t)(r_in.sign);
+    p_ref_out = p_out + 64;
+    p_ref_out[0] = sign;
+    acc = 0;
+    for (i = 1; i < 64; ++i) { 
+        acc ^= index_entry.perm[TAB[i]];
+        p_ref_out[i] = acc ^ sign;
+    }
+   
+    #ifdef PREP_OP_PI_ROW64_DEBUG
+       #ifdef MM_OP_FAST_PERM_ROW64_SHUFFLE64
+           return 2;
+       #else
+           return 1;
+       #endif
+    #else
+       return 0;
+    #endif
+}
+
+/// @endcond 
+
+
+
+
+/***************************************************************************
+** Functions performing the permutation oa a row vector of 24 bytes
+***************************************************************************/
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+#if defined(__GNUC__) && defined(__AVX512VBMI__)
+   #define FMASK(i,j) \
+      {i,i,i,i,i,i,i,i, i,i,i,i,i,i,i,i, i,i,i,i,i,i,i,i, 0,0,0,0,0,0,0,0, \
+        j,j,j,j,j,j,j,j, j,j,j,j,j,j,j,j, j,j,j,j,j,j,j,j, 0,0,0,0,0,0,0,0 }
+   
+   static v64_8_type NEG_MASK_64[4] = {
+       FMASK(0,0), FMASK(255,0), FMASK(0,255), FMASK(255,255)
+   }; 
+
+   #undef FMASK
+#endif
+
+
+static inline void _perm_24_mma0(
+   mmv_fast_row32_type *v_in, mmv_fast_row32_type *v_out, uint32_t sign_sh, 
+   mmv_fast_op_pi_type *p_pi, uint32_t n
+)
+{
+    ASSUME_ALIGNED(p_pi, 64);
+    ASSUME_ALIGNED(v_in, 32);
+    ASSUME_ALIGNED(v_out, 64);
+    uint_fast32_t i;
+    mmv_fast_shuffle24_type ALIGNED(64) mask = p_pi->perm24;
+
+    for (i = 0; i < n; i += 2) {
+      uint16_t w0, w1, *p_w  = p_pi->p_autpl;
+      w0 = p_w[i];
+      w1 = p_w[i+1];
+      #if defined(__GNUC__) && defined(__AVX512VBMI__)
+        mmv_fast_row64_type ALIGNED(64) v;
+        uint32_t sgn = ((w0 >> sign_sh) & 1) + ((w1 >> (sign_sh - 1)) & 2);     
+        mmv_merge_rows32_row64(v_in[w0 & 0x7ff], v_in[w1 & 0x7ff], &v);
+        _shuffle64(v, mask.v64row, &v);
+        v.v64[0] ^= NEG_MASK_64[sgn];  
+        mmv_row64_copy(v, (mmv_fast_row64_type*)(&v_out[i]));
+      #else
+        mmv_fast_row32_type ALIGNED(32) v0_in[2], ALIGNED(32) v0_out[2];
+        uint8_t bsign0, bsign1;
+
+        bsign0 = (uint8_t)(0 - ((w0 >> sign_sh) & 1));
+        bsign1 = (uint8_t)(0 - ((w1 >> sign_sh) & 1));       
+        mmv_row24_copy(v_in[w0 & 0x7ff], &(v0_in[0]));
+        mmv_row24_copy(v_in[w1 & 0x7ff], &(v0_in[1]));
+        _shuffle24(v0_in[0], mask, bsign0, &v0_out[0]);
+        _shuffle24(v0_in[1], mask, bsign1, &v0_out[1]);
+        mmv_row24_copy(v0_out[0], &v_out[i]);
+        mmv_row24_copy(v0_out[1], &v_out[i+1]);
+      #endif
+   }
+}
+
+/// @endcond
+
+
+/***************************************************************************
+** Functions performing the permutation on a vector of bytes
+***************************************************************************/
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+static int32_t mm_op_fast_op_pi_mma0(
+    uint32_t eps, uint32_t pi, mmv_fast_type *p_in, mmv_fast_type *p_out
+)
+{
+    ASSUME_ALIGNED(p_in, 64);
+    ASSUME_ALIGNED(p_out, 64);
+    uint16_t *p_autpl_next;
+    mmv_fast_op_pi_type op_pi; 
+    uint_fast32_t dest_z, dest_y, dest_x = MM_AUX_OFS_X/32;
+    
+
+    if (eps & 0x800) {
+        dest_z = MM_AUX_OFS_Y/32;
+        dest_y = MM_AUX_OFS_Z/32;
+    } else {
+        dest_z = MM_AUX_OFS_Z/32;
+        dest_y = MM_AUX_OFS_Y/32;
+    }
+
+    p_autpl_next = ((uint16_t *)(p_out->v32 + dest_y + 2048)) - 2048;
+    mmv_fast_prep_pi(eps, pi, p_autpl_next, &op_pi);
+
+    _perm_24_mma0(p_in->r32 + MM_AUX_OFS_A/32, p_out->r32 + MM_AUX_OFS_A/32,
+         12, &op_pi, 24);
+    _perm_24_mma0(p_in->r32 + MM_AUX_OFS_B/32, p_out->r32 + MM_AUX_OFS_B/32,
+         12, &op_pi, 24);
+    _perm_24_mma0(p_in->r32 + MM_AUX_OFS_C/32, p_out->r32 + MM_AUX_OFS_C/32,
+         11, &op_pi, 24);
+    op_pi.p_autpl = op_pi.p_autpl_next;
+
+    // Do Tag T here!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    {
+        uint32_t i;
+        mmv_fast_op_pi_row64_in_type ALIGNED(32) r_in;
+        mmv_fast_row64_type *pv_in = p_in->r64 + MM_AUX_OFS_T/64;
+        mmv_fast_row64_type *pv_out = p_out->r64 + MM_AUX_OFS_T/64;
+        ASSUME_ALIGNED(pv_in, 64);
+        ASSUME_ALIGNED(pv_out, 64);
+        //mmv_fast_row64_type entry ALIGNED(64);
+        mmv_fast_shuffle24_type perm24 = _load_op_pi_row64_perm24(&op_pi);
+        for (i = 0; i < 759; ++i) {
+            _prep_op_pi_row64_in(i, eps, op_pi.p_autpl, &r_in);
+            _prep_op_pi_row64(&r_in, perm24, pv_in, &pv_out[i]);
+        }    
+    }
+
+    _perm_24_mma0(p_in->r32 + dest_x, p_out->r32 + dest_x, 12, &op_pi, 2048);
+    _perm_24_mma0(p_in->r32 + MM_AUX_OFS_Z/32, p_out->r32 + dest_z, 13,
+         &op_pi, 2048);
+    _perm_24_mma0(p_in->r32 + MM_AUX_OFS_Y/32, p_out->r32 + dest_y, 14,
+         &op_pi, 2048);
+ 
+    // Do not forget to negate some Tag X entries if eps is odd
+    if (eps & 0x800) {
+        mm_op_fast_neg_scalprod_mma0(p_out);
+        mm_op_fast_neg_eps_64(p_out);
+    }
+    return 0;
+}
+
+/// @endcond
+
+
+/***************************************************************************
+** Main function performing the permutation on a vector
+***************************************************************************/
+
+
+
+// %%EXPORT p
+int32_t mm_op_fast_op_pi(mmv_fast_matrix_type *pm, uint32_t eps, uint32_t pi)
+{
+    uint32_t cur = pm->current &= 1;
+    switch (pm->mode) {
+        case 1:
+            {
+                mmv_fast_type *p_in = pm->p_v.p_vb[cur];  
+                mmv_fast_type *p_out = pm->p_v.p_vb[cur ^ 1];  
+                pm->current = cur ^ 1;  
+                return mm_op_fast_op_pi_mma0(eps, pi, p_in, p_out);
+            }
+        default:
+            return -1;   
+    }
+}
+
+
+
+/***************************************************************************
+** Function performing the permutation on a vector  at part A
+***************************************************************************/
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+// %%EXPORT p
+void mm_op_fast_op_p_A_mod_3(mmv_fast_row32_type *pm, uint32_t p)
+{
+    mmv_fast_shuffle24_type shuf;
+    uint8_t perm[32], inv_perm[32];
+    mmv_fast_row32_type buf[24];
+    uint32_t inv = p & 0x80000000, i;
+    p &= 0xfffffffUL; 
+    if (p >= MAT24_ORDER || p == 0) return;
+    mat24_m24num_to_perm(p, perm);
+    if (inv) {
+        mat24_inv_perm(perm, inv_perm);
+        memcpy(perm, inv_perm, 24 * sizeof(uint8_t));
+    }
+    for (i = 24; i < 32; ++i) perm[i] = i;
+    mm_op_fast_prep_shuffle24(perm, &shuf);
+    for (i = 0; i < 24; ++i) _shuffle24(pm[i], shuf, 0, &buf[i]);
+    for (i = 0; i < 24; ++i) pm[perm[i]] = buf[i];
+}
+
+
+/// @endcond
+
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

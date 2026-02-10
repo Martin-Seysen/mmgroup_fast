@@ -1,0 +1,360 @@
+/** @file mm_axis3_case6C.c
+
+Deals with axes of axis type 6C.
+
+We write  \f$\Lambda\f$ for the Leech lattice, and \f$\Lambda_p\f$
+for the Leech lattice mod \f$p, p = 2, 3\f$. The standard homomorphism
+from \f$\Lambda\f$ to the vector space \f$\Lambda_3\f$ is obtained by
+simply reducing the co-ordinates of a vector in the standard basis 
+of \f$\Lambda\f$ modulo 3. A homomrphism from \f$\Lambda\f$
+to \f$\Lambda_2\f$ cannot be obtained in such a simple way.
+
+The part 'A' of an axis ``ax`` has a natural interpretation as a
+symmetric 24 times 24 matrix over \f$\Lambda\f$. We write M(ax) for
+that matrix, or simply M, if the axis is clear from the context. In
+our context, the entries of M(ax) are given modulo 3 only,
+corresponding to a matrix over the vector space \f$\Lambda_3\f$.
+We write M3(ax), or simply M3, for the matrix M(ax) with entries
+taken modulo 3.  
+
+In the sequel we consider axes ``ax`` of type 6C only. We want to
+reduce such an axis. Therefore we have to find a type-4 vector v4
+in \f$\Lambda_2\f$, so that a transformation in \f$G_{x0}\f$ mapping
+v4 to the standard frame \f$\Omega\f$, and a subsequent transformation
+by a power of the triality element reduces axis ``ax`` to a 'better'
+axis. From [Sey22] we conclude that v4 may be any vector in a certain
+six-dimensional subspace V6_2 of \f$\Lambda_2\f$, and that the
+'better' axis will be of axis type '4A'. It is not difficult to show
+that V6_2 depends on M3(ax) only; so we may write V6_2(M3) or V6_2(M),
+when M3 or M are matrices obtained as a matrix M3(ax) or M(ax). 
+ 
+So or main task is to find a basis of the subspace V6_2(M3)
+of \f$\Lambda_2\f$,  with M3 = M3(ax) a symmetric matrix
+over \f$\Lambda_3\f$, and ``ax`` an axis of axis type 6C. 
+
+From [Sey22] we see that M = M(ax) has eigenvalues (10^2, 34^6, 18^16)
+in a suitable scaling. Let V6(M) be the intersection of \f$\Lambda\f$
+with the eigensapce of eigenvalue 34 of matrix M. It is not 
+diffcult to see that V6(M) is proportional to the Gosset Lattice E_6,  
+and that the image of V6(M) in \f$\Lambda_2\f$ is our requested
+space V6_2(M). Let V6_3(M) be the image if V6(M) in \f$\Lambda_3\f$.
+The V6_3(M) is a subspace of the vector space \f$\Lambda_3\f$.
+Clearly, V6_3(M) depends on M3 = M3(ax) only, so the we may also
+write V6_3(M3). Using standard methods of the mmgroup package, it is
+easy to compute V6_2(M) from V6_3(M3). So it suffices to compute a
+basis of V6_3(M3).
+
+Since we only know the matrix M3 (with entries given mod 3), we
+cannot easily separate the eigenspaces of the eigenvalues 10 and 34
+of M. 
+
+A closer analysis shows that every axis ``ax`` of axis type 6C can be
+transformed into an axis ax' of the same axis type satisfying some
+rather nice properties. We abbreviate M(ax') and M3(ax') to M' and M3'.
+Matrix M' - 34 has diagonal entries -16 and off-diagonal entries 8 in
+a block B of size 3 times 3. It also a contains a block that is a
+16 times 16 unit matrix multipled by -16. The remaining rows and
+columns of that matrix are zero.  The kernel of  M' - 34 is our
+requested subspace V6(M). It is spanned by a vector with co-ordinates
+1 in the block B and zero elsewhere, and by the five unit vectors
+coreponding to the zero rows of M' - 34.
+ 
+The image M3' - 1 of M' - 34 (under reduction mod 3) has entries 2 in
+the block B, diagonal entries 2 where  M' - 34 has nonzero diagonal
+entries, and zero entries elsewhere. Clearly, the image V6_3(M3') of
+the kernel V6(M) of M' - 34 is in the kernel  M1' - 1. Consider a
+vector w3' that has entries 0, 1, -1 (in any order) in the block B and
+zero entries elsewhere. Then w3' is in the kernel of  M3' - 1, but not
+in V6_3(M3'). It turns out that V6_3(M3') has codimension 1 in the
+kernel ker(M3' - 1).
+
+While the kernel ker(M3' - 1) can easily be computed from the axis
+data, the computation of its subspace V6_3(M3') is a bit more involved.
+We can compute the intersection w(M3') of  ker(M3' - 1) an the
+image im(M3' - 1) of the matrix M3' - 1, which is a one-dimensional
+subspace of \f$\Lambda_3\f$. A vector in w(M3') has three shortest
+preimages in \f$\Lambda\f$, which are all of type \f$6_{32}\f$      
+in \f$\Lambda\f$. For the definition of the type \f$6_{32}\f$ we
+refer to [1] and [CS99], Ch. 10.3.3. The intersection H(M3') of the
+space spanned by these three preimages in \f$\Lambda\f$ is a
+two-dimensional hexagonal sublattice \f$\Lambda\f$ spannned by
+vectors of type 2 in \f$\Lambda\f$. Let H3(M3') be the image of
+H(M3') in  \f$\Lambda_3\f$. It turns out that H(M3') is a subspace
+of ker(M3' - 1), and that V6_3(M3') is just the orthogonal complement
+of H(M3') in ker(M3' - 1). Note that the intersection of  H(M3') and
+its orthognal complement V6_3(M3') in ker(M3' - 1) is the
+one-dimensional space w(M3').
+
+So we can compute V6_3(M3) for any matrix M3 = M3(ax), provided that
+we can compute H3(M3). The space H(M3) is completely determined by
+a vector v3 generating the one-dimensional intersection w(M3) of
+ker(M3 - 1) and im(M3 - 1). Function ``gen_leech3_reduce_leech_mod3``
+in the mmgroup package can transform any vector in \f$\Lambda_3\f$
+to a representative of its orbit under the automorphism group
+of \f$\Lambda_3\f$. Any such vector v3 is in the orbit
+of \f$\Lambda_3\f$ that is also called \f$6_{32}\f$ in [1]. So it
+suffices to store a basis for the space H3(M3) constructed from 
+the repesentative of the orbit \f$6_{32}\f$ in \f$\Lambda_3\f$. 
+  
+
+[1] M. Seysen, *The C interface of the mmgroup project*, Section
+    *Description of the mmgroup.generators extension*, subsection
+    *C interface for file gen_leech_reduce_mod3.c*
+*/
+
+#include <stdlib.h>
+#include <stdint.h>
+#include "mat24_functions.h"
+#define MMGROUP_GENERATORS_INTERN
+#include "mmgroup_generators.h"
+#include "clifford12.h"
+#include "mm_op_fast.h"
+#include "mm_op_fast_intern.h"
+#include "mm_op_sub.h"   
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT 
+//  %%GEN c
+
+
+
+
+
+
+/**********************************************************************
+* Tables for dealing with case 6C
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+static uint8_t TABLE_ENTRIES_E6[5] =  {
+  // %%TABLE MM_AXIS3_CASE_6C_ENTRIES_E6, uint8
+};
+
+static uint32_t TABLE_Y[4] =  {
+  // %%TABLE MM_AXIS3_CASE_6C_TABLE_Y, uint32
+};
+
+static uint32_t TABLE_BASIS_E6[6] =  {
+  // %%TABLE MM_AXIS3_CASE_6C_BASIS_E6, uint32
+};
+
+static uint8_t TABLE_TYPE4[27] =  {
+  // %%TABLE MM_AXIS3_CASE_6C_TYPE4, uint8
+};
+
+
+/// @endcond 
+
+
+
+
+
+
+
+/**********************************************************************
+* Data structure for dealing with case 6C
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+#define LEN_TF 8         // length of component tf in following structure    
+
+typedef struct  {
+    uint32_t v4;         // resulting type-4 vector
+    uint32_t len_tf;     // length of transformation ``tf`` in this struct
+    uint32_t tf[LEN_TF]; // transformation from standard to dedicated octad
+    uint32_t basis[6];   // basis of transformed subspace given by std octad
+} info_6C_type;
+
+
+
+/// @endcond 
+
+
+/**********************************************************************
+* Find best vector for reducing
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+static inline 
+int32_t find_v4(mmv_fast_Amod3_type *pa, uint32_t *basis)
+{
+    uint32_t i, j, bx[2][8], w_min = 0xffffffffUL;
+    for (i = 0; i < 2; ++i) {
+        bx[i][0] = 0;
+        for (j = 0; j < 3; ++j) bx[i][1 << j] = basis[3*i + j] & 0xffffff;
+        for (j = 3; j < 8; ++j) if (j & (j - 1)) {
+            uint32_t k = j & (0 - j);
+            bx[i][j] = bx[i][k] ^ bx[i][j ^ k];
+        }
+    }
+
+    for (i = 0; i < 27; ++i) {
+        uint32_t coord = TABLE_TYPE4[i], v, w;
+        v = bx[0][coord & 0x7] ^ bx[1][coord >> 3];
+        w = v ^ (gen_leech2_coarse_subtype_inline(v) << 24);
+        if (w < w_min) w_min = w;
+    }
+    if (w_min == 0xffffffffUL) return -121;
+    return w_min & 0xffffffUL;
+}
+
+/// @endcond 
+
+
+
+
+/**********************************************************************
+* Dealing with cases 6C
+**********************************************************************/
+
+/**  
+  @brief Deal with axis type 6C
+*/
+static inline 
+int32_t analyze_case_6C(mmv_fast_Amod3_type *pa, info_6C_type *pf)
+{
+    int32_t status;
+    if (pa->p_source == NULL || pa->row_source < 0 || 
+        pa->norm != 2 || pa->diag != 1) return -11;
+    if (mm_axis3_fast_intersect(pa, 3) < 0) return -12;
+    if (pa->len_B[0] != 7) return -1300 - pa->len_B[0];
+    if (pa->len_B[1] != 1) return -1400 - pa->len_B[1];
+
+    uint64_t v3 = mm_axis3_fast_to_leech_mod3(pa, 24+7);
+    uint32_t *g = (pa->a[24+9]).u32;
+    v3 = gen_leech3_reduce_leech_mod3(v3, g);
+    uint32_t len_g = (uint32_t)(v3 >> 48);
+    v3 &= 0xffffffffffffUL;
+    if (v3 != 0xe) return (int32_t)(v3 | 0x80000000);
+    mm_group_invert_word(g, len_g);
+    v3 = 0x8000004ULL;
+    v3 = gen_leech3_op_vector_word(v3, g, len_g);
+    mm_axis3_fast_store_row_mod3(pa, 24+7, v3);
+    status = mm_axis3_fast_orthognal(pa, 8);
+    if (status != 7) return -1500 - status;
+    // pa->a[24 + status] =  pa->a[24 + 6];
+    status = mm_axis3_fast_find_v4_subspace(pa, 7, 0);
+    if (status < 0) return -16;
+    pf->v4 = status;
+    status = gen_leech2_reduce_type4(pf->v4, pf->tf);
+    if (status < 0) return -17;
+    pf->len_tf = status;
+    status = mm_axis3_fast_op_G_x0(pa, pf->tf, pf->len_tf, 0);
+    if (status < 0) return -18;
+
+    uint8_t *pd = &((pa->a)[24].b[0]), b1[5], perm[24];
+    uint32_t i, j = 0;
+    // set bit i of v to 1 if A[i,i] = 2 (mod 3), and to 0 otherwise
+    for (i = 0; i < 24 * 32; i += 33) {
+        if ((pd[i] & 3) == 1) {
+           b1[j++] = i & 31;
+           if (j == 5) break;
+        }
+    }
+    status = mat24_perm_from_map(b1, TABLE_ENTRIES_E6, 5, perm);
+    if (status == 0 || status > 3) return -19;
+    pf->tf[pf->len_tf] = MMGROUP_ATOM_TAG_P + mat24_perm_to_m24num(perm);    
+    status = mm_axis3_fast_op_G_x0(pa, pf->tf + pf->len_tf, 1, 1);
+    if (status < 0) return -20;
+    ++pf->len_tf;
+    v3 = (mm_axis3_fast_to_leech_mod3(pa, 24+1) >> 2) & 3;
+    pf->tf[pf->len_tf] = TABLE_Y[v3];
+    status = mm_axis3_fast_op_G_x0(pa, pf->tf + pf->len_tf, 1, 1);
+    if (status < 0) return -21;
+    ++pf->len_tf;
+ 
+    memcpy(pf->basis, TABLE_BASIS_E6, 6*sizeof(uint32_t));
+    status = gen_leech2_op_word_leech2_many(
+        pf->basis, 6, pf->tf, pf->len_tf, 1);
+    if (status < 0) return status;
+    status = find_v4(pa, pf->basis);
+    pf->v4 = status & 0xffffffUL;
+    return status < 0 ? status : 0;
+}
+
+/**********************************************************************
+* intermediate function for testing aces 
+**********************************************************************/
+
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+/**  
+  @brief Yet to be documented!!!!!
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_analyze_case_6C(mmv_fast_Amod3_type *pa, uint32_t *buf, uint32_t l_buf)
+{
+    int32_t status;
+    info_6C_type sf;
+    status = analyze_case_6C(pa, &sf);
+    if (status < 0) return status;
+    uint32_t bufsize = sizeof(info_6C_type) /  sizeof(uint32_t);
+    if (l_buf >= bufsize) memcpy(buf, &sf, sizeof(info_6C_type));
+    else return 0;
+    return bufsize;
+}
+
+
+
+
+
+
+
+
+
+/// @endcond 
+
+
+/**********************************************************************
+* The final exported functions of this module
+**********************************************************************/
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+
+/**  
+  @brief Yet to be documented!!!!!
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_find_v4_case_6C(mmv_fast_Amod3_type *pa)
+{
+    info_6C_type sf;
+    sf.v4 = 0x80000000; // kill compiler warning
+    uint32_t status = analyze_case_6C(pa, &sf);
+    if (status < 0) return status;
+    return sf.v4 + (7UL << 25);
+}
+
+
+
+
+
+/// @endcond 
+
+
+
+
+
+
+/**********************************************************************
+* end of C functions
+**********************************************************************/
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

@@ -1,0 +1,378 @@
+/** @file mm_axis3_case8B.c
+
+Deals with axes of axis type 8B.
+
+The theory for the reduction of a 2A axis ``ax`` of axis type 8B (with
+entries given mod 3) is a bit involved; but this reduction is fast and
+easy to implement. Therefore we need some properties of the Leech
+lattice modulo 2 and modulo 3.
+
+The Leech lattice modulo 2 and modulo 3
+.......................................
+
+For brevity, we write Lambda for the Leech lattice, Lambda_2 for the
+Leech lattice mod 2, and Lamda_3 for the leech Lattice mod 3. The type
+of a vector in Lambda is its halved squared norm. The type of a vector
+in Lamda_2 or Lambda_3 is the type of its shortest preimage in Lambda.
+The automorphism group of Lambda or Lambda_3 is \f$Co_0 = 2.Co_1\f$,
+and the automorphism group of Lambda_2 is \f$Co_1\f$. The group 
+\f$Co_1\f$ is transitive on the vectors of type 0, 2, 3, and 4 in
+Lambda_2, and any vector in Lambda_2 is of one of these types. The
+group \f$Co_0\f$ is transitive on vectors of type 0, 2, 3, 4, and 5
+in Lambda_3, but there are two orbits of vectors of type 6 under
+\f$Co_0\f$, called 6_22 and 6_32 in [CS99] and [1]. 
+
+We define a partial function f_2 from Lambda_3 to Lambda_2 as follows:
+
+Let v3 be a vector in Lambda_3. If all shortest preimages v of v3 in
+Lambda are congruent modulo Lambda_2 then we define f_2(v3) as the
+image in Lambda_2 of any such v. Otherwise f_2(v3) is undefined.
+
+f_2(v3) is defined for vectors v3 in Lambda_3 of type <= 5, and also
+for vectors v3 in the orbit 6_32. In these cases, the value f_2(v3)
+can easily be computed with the mmgroup package. For any vector v3
+in Lambda_3, the C function gen_leech3_reduce_leech_mod3() in the
+mmgroup package computes an element g of \f$Co_1\f$ mapping v3 to
+a representative of its orbit under \f$Co_0\f$, up to sign. More
+precisely, the function computes a preimage of g in the maximal
+subgroup \f$G_{x0}\f$ of the Monster. For details we refer to [1].
+
+The is a unique type-4 vector *Omega* in Lambda_2 such that its 48
+shortest preimages in Lambda are proportional to the standard basis
+vectors of Lambda. The set of these 48 vectors in Lambda is called
+the standard co-ordinate frame of Omega. For any type-4 vector v2 in
+Lambda_2, its co-ordinate frame is defined as the set of its shortest
+preimages in Lambda. The halved sums of any two vectors in that
+co-ordinate frame are also in Lambda; and the images of these halved
+sums in Lambda_2 span a 12-dimensional subsspace of Lambda_2. For any
+v2 in Lambda_2 of type 4, we denote that subspace of Lambda_2 by
+V12(v2). For two type-4 vectors v2 and v2' in Lambda_2, the vector
+v2 is in V12(v2') if and only if v2' is in V12(v2). The space
+V12(Omega) is spanned by Omega and the vectors in Lambda 2
+corresponding to the even elements of the Golay cocode.  
+
+Reducing an axis of axis type 8B
+................................
+
+Given an axis ``ax`` of axis type 8B, we want to find an element g
+of the Monster that transforms axis ``ax`` to an axis of a 'better'
+axs type. Following [Sey22] and using the notation in [2] we may
+construct g as follows:
+
+   g =  MM('c', v(ax)) ** -1  *  MM('t', e)
+
+Here MM('c', v) is an element of the maximal subgroup \f$G_{x0}\f$
+of the Monster that maps the type-4 vector Omega in Lambda_2 to the
+vector v in Lambda_2. MM('t', e) is the e-th power of the traility 
+element in the Monster. 
+
+From [Sey22], Section 8.4 we see that a vector v = v(ax) with these
+properties is unique, and that this 'better' axis type must be '4A'.
+So our main task is to find the vector v(ax) from the axis ``ax``.  
+
+The part 'A' of axis ``ax`` is a symmetric matrix over the space
+containing the Leech lattice. Since the co-ordinates of that matrix
+are known modulo 3 only, we consider that part 'A' as a matrix M(ax)
+over Lambda_3. Using Table 1 in [Sey22] and some easy calculations in
+mmgroup we see that the image Im(M(ax)) of matrix M(ax) is of
+dimension 11.
+
+The basis vectors of Lambda (or of Lambda_3) are labelled by a
+set S of size 24 on which the Mathieu group M_24 acts. The power set
+P(S) of S has a natural interpretation as a 24-dimensional vector
+space over GF(2). The Mathieu group M_24 is the automorphism group of
+the binary Golay code, which is a linear (24, 12, 8) code in P(S). 
+Golay code words of weight 8 and 12 are called octads and dodecads.
+
+There is a natural mapping c from P(S) to the Golay cocode, and there
+is a natural embedding from the Golay cocode into the Leech_2
+described in [Con85] and [Sey20].
+
+In the special case v(ax) = Omega, we obtain M(ax) as a diagonal
+matrix with equal nonzero entries at the co-ordinates corresponding to
+an umbral undecad. An 'umbral undecad' is obtained from a dodecad by
+removing one entry. 
+
+In the general case, finding v(ax) in the space Im(M(ax)) of size
+3**11 is like finding a needle in a haystick. 
+
+Our strategy is to transform a general matrix Im(M(ax)) to a matrix
+that is close to a diagonal matrix, using a transformation in the 
+group \f$Co_0\f$. More specifically, we search for random type-4 
+vectors in Lambda_2 satifying certain additional properties; and
+then we transform that type-4 vector to the standard type-4 vector
+Omega. 
+
+Lemma 1
+Let ``ax_0`` be an axis of type 8B with v(ax_0) = Omega. Then the
+nonzero diagonal entries of matrix M(ax_0) correspond to an umbral
+undecad u11 in P(S). Let w3 be any vector in Im(M(ax_0)) in orbit 6_32.
+Then f_2(w3) is a vector delta or delta + Omega in V12(Omega) of type 4
+in Lambda_2, where delta corresonds to a Golay cocode word w4 of weight
+4. That cocode word is equal to an element c(u6), where u6 is an umbral
+hexad contained in the umbral undecad u11. Since c(u6) is of weight 4,
+it can be described as a sextet. Five of the six tetrads in that sextet
+c(u6) intersect with u11 in a set of size 2, and the remaining tetrad
+in that sextet intersects with u11 in a singleton. 
+
+The terms 'umbral hexad' and 'umbral undecad' are defined in [Con99],
+Ch. 10.2.6. Note that an 'umbral hexad' and a 'umbral undecad' is a
+subset of S of size 6 and 11, respectively, contained in a dodecad. A
+Golay cocode word of weight 4 has six disjoint shortest representatives
+of weight 4 in P(S). Here such a representative is called a tetrad,
+and the set of all these tetrads is called a sextet, see loc. cit. 
+
+Sketch proof
+For a proof of the lemma we first show that vectors in Im(M(ax_0)) in
+orbit 6_32 are precisely the vectors whose support is an umbral hexad
+contained in u11. From standard properties of the Mathieu group M_24
+we conclude that M_24 is transitive on chains of inclusions:
+
+  u6 \subset u11 \subset S, u6 an umbral hexad, u11 an umbral undecad.
+
+So it suffices to analyze one specific case, e.g. 
+u6 = {0, 4, 8, 12, 16, 20}, and u11 \setminus u6 = {2, 7, 10, 15, 18}.
+We leave the details of the proof of the lemma to the reader.
+q.e.d.
+
+Any axis of axis type 8B is an image of ``ax_0`` under \f$G_{x0}\f$.
+So Lemma 1 implies:
+
+Corollary 2
+Let ``ax`` be an axis of type 8B, and let w3 be any vector in
+Im(M(ax)) in orbit 6_32. Then the vector f_2(w3) is in V12(v(ax)).
+
+
+
+
+Finding a type-4 vector in the Leech lattice mod 2 for reducing an axis
+........................................................................
+
+When selecting a random vector w3 of weight 0 (mod 3) in Im(M(ax)),
+there is roughly a 40% chance that w3 is in the orbit 6_32 of Lambda_3
+under \f$Co_0\f$. By Lemma 1 the vector f_2(w3) in Lambda_2 is of
+type 4, and we may find a transformation in \f$G_x0\f$ that maps  
+f_2(w3) to the standard type_4 vector Omega. So we may compute v(ax')
+for the transormed axis ``ax'`` instead. 
+
+In the sequel we let ``ax`` be an axis such that there is a vector w3
+in the orbit 6_32 of Lambda_3 with f_2(w3) = Omega. By Corollary 2,
+the vector Omega is in V12(v(ax)). This implies that v(ax) is in  
+V12(Omega). Let \phi be an element g of \f$G_x0\f$ that maps Omega to
+v(ax). Let ``ax_0`` = \phi^{-1}(ax), and v4 =\phi^{-1}(f_2(w3)).
+Then v(ax_0) = Omega, and the matrix M(ax_0) is a diagonal matrix
+with nonzero entries at the co-ordinates corresponding to an umbral
+undecad u11. By Lemma 1, the vector v4 in Lambda_2 corresponds to a
+sextet s6 such that the tetrads in that sextet intersect with u11 in
+set of size 1 and 2, up to a possible additive term Omega.
+
+Any element of \f$G_x0\f$ operates as an orthogonal transformation
+T(g) on the symmetric matrix M(ax_0). The structure of matrix T(g),
+where g maps Omega to a vector v4 as above, is well known. Such a
+matrix T(g) consists of 6 diagonal blocks of 4 times 4 matrices, with
+each block located at the positions given by the entries of a tetrad
+contained in the sextet s6. The nonzero entries of T(g) are equal to
++-1/2.
+
+Let t1 be the (unique) tetrad in s6 that intersects with the undecad
+u11 in a singleton; and let i be the element of that singleton. The
+basis vector b_i of Lambda_3 at position i is of type 4 and we have
+f_2(b_i) = Omega. The restriction of the diagonal matrix M(ax_0) to
+the entries the diagonal block B1 given by the tetrad t1 is of rank 1
+and equal to dyadic product of b[i] by itself. Since transformation
+with matrix T(g) preserves the block structure given by the sextet
+s1, the restriction of the transformed matrix M(ax_0)^T(g) to the
+block B1 is the dyadic product of b[i]^g by itself. So we easily 
+obtain b[i]^g, provided that we can find the 4 times 4 block B1 in
+the matrix M(ax_0). We have f_2(b[i]^g) = Omega^g = v(ax), which is
+just our desired result! 
+
+A closer analysis of the operation of g the on the other 4 times
+4 blocks given by the sextet s6 shows that g maps the restriction
+of the diagonal matrix M(ax_0) to any of these other blocks to a
+4 times 4 matrix containing two blocks of 2 times 2 matrices.   
+Thus the rows (or columns) of matrix M(ax) containing the block
+B1 are just the rows (or columns) of weight 4.
+
+
+
+[1] The C interface of the mmgroup project.
+    Section: Description of the mmgroup.generators extension
+    Subsection: C functions for the operation of on the Leech lattice
+    Subsection: C interface for file gen_leech_reduce_mod3.c
+    https://mmgroup.readthedocs.io/en/latest/c_interface.html.
+
+[2] The mmgroup API reference
+    https://mmgroup.readthedocs.io/en/latest/api.html 
+    
+*/
+
+#include <stdlib.h>
+#include <stdint.h>
+#include "mat24_functions.h"
+#define MMGROUP_GENERATORS_INTERN
+#include "mmgroup_generators.h"
+#include "clifford12.h"
+#include "mm_op_fast.h"
+#include "mm_op_fast_intern.h"
+#include "mm_op_sub.h"   
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT 
+//  %%GEN c
+
+
+
+
+
+/**********************************************************************
+* Dealing with cases 8B
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+/**  
+  @brief Deal with axis type 8B
+*/
+static inline 
+int64_t analyze_case_8B(mmv_fast_Amod3_type *pa)
+{
+    uint32_t i, g[16], len_g, advance = 11, n_trials=0, support, sign, v;
+    uint64_t v3;
+    if (pa->p_source == NULL || pa->row_source < 0 || 
+        pa->norm != 2 || pa->diag != 1) return -11;
+    // Search a vector v3  in the 11-dimensional kernel of part A
+    // of the axis 'ax' (mod 3) satisfying the following property:
+    // v3 is of type \f$6_{23}\f$. Then find an element g in
+    // \f$G_{x0}\f$ that maps v3 to the representative of its orbit.
+    // That representative has co-ordinates 1 at positions 4*i,
+    // 0 <= i < 6, and zero elswhere.
+    if (mm_axis3_fast_intersect(pa, 1) < 0) return -12;
+    if (pa->len_B[0] != 11) return -13;
+    for (i = 0; i < 2000; ++i) {
+         v3 = mm_axis3_fast_rand_v(pa, 11, 0, advance);
+         advance = 0;
+         v3 = gen_leech3_reduce_leech_mod3(v3, g);
+         ++n_trials;
+         if ((v3 & 0xffffffffffffULL) == 0x111111ULL) goto found_1;
+    }
+    return -111;
+found_1:
+    // Store part A of axis 'ax' * g in the 24 times 24  matrix B
+    // contained in the structure *pa.
+    // Find a 4 times 4 block with a rows of weight 4 at a positions
+    // 4*i, 4*i+1, 4*i+2, 4*i+3 in that matrix; and transform the
+    // matrix in that block to a 4 times 4 diagonal matrix.
+    len_g = (uint32_t)(v3 >> 48);
+    if (len_g > 12) return -112;
+    g[len_g++] = MMGROUP_ATOM_TAG_L + 1;
+    mm_axis3_fast_op_G_x0(pa, g, len_g, 0);
+    for (i = 0; i < 24; ++i) {
+        v3 = mm_axis3_fast_to_leech_mod3(pa, 24+i);
+        support = (uint32_t)((v3 ^ (v3 >> 24)) & 0xffffffUL);
+        if (mat24_bw24(support) == 4) goto found_2;
+    }
+    return -113;
+
+found_2:    
+    // Compute (transformed) result vector v  
+    sign = support & (uint32_t)v3;
+    sign = mat24_def_parity12(sign ^ (sign>> 12));
+    v = mat24_vect_to_cocode(support) ^ (sign << 23);
+    if (gen_leech2_type(v) != 4) return -117;
+
+    // Store g in the slack
+    uint32_t *p_slack = (uint32_t*)(pa->a + 24) + 6;
+    p_slack[0] = len_g; 
+    p_slack[1] = n_trials; 
+    p_slack += 8;
+    p_slack[1] = v; 
+    for (i = 0; i < len_g; ++i) p_slack[8*i] = g[i];
+
+    // Untransform the result vector v
+    v = gen_leech2_op_word_leech2(v, g, len_g, 1); 
+    if (gen_leech2_type(v) != 4) return -118;
+    return (8UL << 25) + (v & 0xffffff);
+}
+
+
+
+
+/// @endcond 
+
+
+
+
+
+
+/**********************************************************************
+* intermediate function for testing
+**********************************************************************/
+
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+/**  
+  @brief Yet to be documented!!!!!
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_analyze_case_8B(mmv_fast_Amod3_type *pa, uint32_t *buf, uint32_t l_buf)
+{
+    int32_t status;
+    status = analyze_case_8B(pa);
+    if (status < 0) return status;
+    if (l_buf == 0) return 0;
+    buf[0] = status;
+    return 1;
+}
+
+
+
+
+
+
+
+/// @endcond 
+
+
+/**********************************************************************
+* The final exported function of this module
+**********************************************************************/
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+/**  
+  @brief Yet to be documented!!!!!
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_find_v4_case_8B(mmv_fast_Amod3_type *pa)
+{
+    return analyze_case_8B(pa);
+}
+
+
+
+/// @endcond 
+
+
+
+
+
+
+/**********************************************************************
+* end of C functions
+**********************************************************************/
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+
