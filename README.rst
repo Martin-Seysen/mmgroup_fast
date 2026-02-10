@@ -1,34 +1,21 @@
-This is the python ``mmgroup_fast`` project.
+This is the Python ``mmgroup_fast`` project.
 
-This is a supplement to the ``mmgroup`` project for sppeding up
-computation in that project.
+It is a supplement to the ``mmgroup`` project that provides
+performance-critical components for accelerating computations in the
+Monster group. Users must compile the source files of this project
+themselves.
 
-Project Documentation see
+Users who simply want to perform computations in the Monster group are
+advised to use the mmgroup project instead:
 
-(yet to be documented)
-
-
-
-Quick installation and test
----------------------------
-
-For Windows 64:
-
-.. code-block::
-
-   (yet to be documented)
-
-For Linux and macOS with a 64-bit x64 CPU:
-
-.. code-block::
-
-   (yet to be documented)
+https://github.com/Martin-Seysen/mmgroup
 
 
-Python wheels for some other platforms may be built with the
-cibuildwheel tool, see
+Project Documentation
+---------------------
 
-   (yet to be documented)
+(Documentation is yet to be written)
+
 
 License
 -------

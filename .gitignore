@@ -17,6 +17,7 @@ src/mmgroup_fast/dev/lib_files/
 src/mmgroup_fast/dev/shared_files/
 src/mmgroup_fast/dev/old/
 src/mmgroup_fast/dev/pxd_files/
+src/mmgroup_fast/tests/test_mm_op_c/out/
 src/mmgroup.egg-info
 temp/
 PKG-INFO
