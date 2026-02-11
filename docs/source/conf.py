@@ -1,0 +1,184 @@
+# Configuration file for the Sphinx documentation builder.
+#
+# This file only contains a selection of the most common options. For a full
+# list see the documentation:
+# https://www.sphinx-doc.org/en/master/usage/configuration.html
+
+# -- Path setup --------------------------------------------------------------
+
+# If extensions (or modules to document with autodoc) are in another directory,
+# add these directories to sys.path here. If the directory is relative to the
+# documentation root, use os.path.abspath to make it absolute, like shown here.
+#
+import os
+import sys
+import subprocess
+import sphinx_rtd_theme
+
+sys.path.insert(0, os.path.abspath(os.path.join('..', '..')))
+sys.path.insert(0, os.path.abspath(os.path.join('..', '..', 'src')))
+
+
+# -- Check if we are in readthedocs -------------------------------------------
+
+on_readthedocs = os.environ.get('READTHEDOCS') == 'True'
+
+
+# -- Creating C files in readthedocs ----------------------------------------
+
+SETUP_DIR = os.path.abspath(os.path.join('..', '..'))
+C_DIR = os.path.join(SETUP_DIR, "src", "mmgroup_fast", "dev", "c_files")
+DOXYGEN_DIR = os.path.abspath(os.path.join('..', 'doxygen'))
+
+if on_readthedocs:
+    print("\nGenerating C files ...")
+    subprocess.check_call([sys.executable, "setup.py", "build_ext"], 
+        cwd=SETUP_DIR)
+    print("C files have been generated\n")
+
+print("\nDoxygen Directory = ", DOXYGEN_DIR)
+print("C Directory =", C_DIR, ":")
+C_FILES = [f for f in os.listdir(C_DIR) 
+    if os.path.splitext(f)[1] in [".c", ".h"]]
+print(C_FILES, "\n")
+
+
+# -- Call doxygen ------------------------------------------------------
+
+print(" \nStarting doxygen ...")
+subprocess.check_call("doxygen", cwd = DOXYGEN_DIR)
+print("End of doxygen\n")
+
+
+# -- Project information -----------------------------------------------------
+
+project = 'mmgroup_fast'
+copyright = '2026, Martin Seysen'
+author = 'Martin Seysen'
+
+# The full version, including alpha/beta/rc tags
+release = 'mmgroup_fast v1.0.0'
+
+
+# -- General configuration ---------------------------------------------------
+
+# Add any Sphinx extension module names here, as strings. They can be
+# extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
+# ones.
+extensions = [
+   'sphinx_rtd_theme',
+   'sphinx.ext.autodoc',
+   'sphinxcontrib.bibtex',
+   'sphinxcontrib.tikz',
+   'breathe',
+]
+
+
+bibtex_bibfiles = ['references.bib']
+
+# Add any paths that contain templates here, relative to this directory.
+templates_path = ['_templates']
+
+# List of patterns, relative to source directory, that match files and
+# directories to ignore when looking for source files.
+# This pattern also affects html_static_path and html_extra_path.
+exclude_patterns = []
+
+
+# -- Options for HTML output -------------------------------------------------
+
+# The theme to use for HTML and HTML Help pages.  See the documentation for
+# a list of builtin themes.
+#
+html_theme = "sphinx_rtd_theme"
+
+
+
+# Add any paths that contain custom static files (such as style sheets) here,
+# relative to this directory. They are copied after the builtin static files,
+# so a file named "default.css" will overwrite the builtin "default.css".
+html_static_path = []
+
+# Sidebars in tables in html are ugly! Here we disable them: 
+def setup(app):
+    #app.add_stylesheet('custom.css') # appears to be deprecated!
+    app.add_css_file('custom.css') 
+
+# -- Options for latex output ------------------------------------------------
+# The following option should remove excessive blank pages.
+
+latex_elements = {
+    'extraclassoptions': 'openany,oneside',
+    'preamble': r'''
+\usepackage{cite}
+\usepackage{amsthm}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{mathrsfs} % for \mathscr{F}
+\usepackage{mathtools}
+\usepackage{hyperref}
+\usepackage{array,multirow}
+\usepackage{caption}   % for tables
+''',
+}
+
+
+
+# -- Mock up Cython extension modules ----------------------------------------
+
+# We will mock up most Cython extensions when generating the documentation
+# with Sphinx. This means that these extensions need not be present when
+# the documentation is generated. For background, see:
+# https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html#confval-autodoc_mock_imports
+
+autodoc_mock_imports = [
+  #  "xxx",   # We cannot mock up this extension, see below
+    "blah",
+]
+
+
+
+
+
+
+# -- Workaround for a certain LaTeX error when building the .pdf file --------
+
+# When using nested lists in Sphinx, the following error occurs when building
+# the .pdf file:
+# ! LaTeX Error: Too deeply nested.
+# Here we implement a workaround for this problem, which has been taken from:
+# https://stackoverflow.com/questions/28454217/how-to-avoid-the-too-deeply-nested-error-when-creating-pdfs-with-sphinx
+
+
+latex_elements = {
+# Additional stuff for the LaTeX preamble.
+'preamble': r'\usepackage{enumitem}\setlistdepth{99}',
+}
+
+
+
+
+# -- Breathe Configuration --------
+
+breathe_projects = {
+   'mmgroup_fast' : os.path.join(DOXYGEN_DIR, 'xml')
+}
+
+breathe_default_project = "mmgroup_fast"
+
+
+breathe_projects_source = {
+    "mmgroup_fast" :  (C_DIR, C_FILES) # C_FILES not yet known
+}
+
+
+# -- TikZ configuration --------------------------------------------
+
+tikz_proc_suite = 'GhostScript'
+
+
+tikz_tikzlibraries =  'patterns, calc, positioning, arrows, matrix, fit, positioning'
+
+
