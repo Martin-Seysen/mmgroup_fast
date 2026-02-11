@@ -84,6 +84,7 @@ cdef class MMOpFastMatrix:
              raise ValueError("Too many rows or bad modulus for class MMOpFastArray") 
 
     def copy(self):
+        """Return deep copy of matrix object"""
         cp = MMOpFastMatrix(self.m.p, self.m.nrows, self.m.mode)
         cdef mmv_fast_matrix_type *pc = &cp.m
         cdef int32_t status = mm_op_fast_copy_data(&self.m, pc)

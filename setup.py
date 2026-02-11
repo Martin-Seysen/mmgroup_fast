@@ -446,6 +446,7 @@ DIR_DICT["DLL_NAME"] = "None" if STATIC_LIB else "MM_OP_FAST"
 MM_OP_FAST_SOURCES = '''
    from_mmgroup.c  mm_op_fast_perm.c mm_op_fast_xy.c
    mm_op_fast_conv_mmv.c  mm_op_fast_word.c mm_op_fast_init.c
+   mm_op_fast_mode1.c
    mm_op_fast_shuffle.c mm_op_fast_t.c mm_op_fast_xi.c
    mm_op_fast_xi_monomial.c  mm_op_fast_xi_tables.c
    mm_axis3_fast_sym.c mm_axis3_case6A.c mm_axis3_case10A.c
