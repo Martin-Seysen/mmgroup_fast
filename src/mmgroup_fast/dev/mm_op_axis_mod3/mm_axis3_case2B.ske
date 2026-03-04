@@ -4,10 +4,12 @@ Deals with axes of axis type 2A when the cooresponding baby axis is known.
 
 */
 
+/// @cond DO_NOT_DOCUMENT 
+#define MMGROUP_GENERATORS_INTERN
+/// @endcond
 #include <stdlib.h>
 #include <stdint.h>
 #include "mat24_functions.h"
-#define MMGROUP_GENERATORS_INTERN
 #include "mmgroup_generators.h"
 #include "clifford12.h"
 #include "mm_op_fast.h"
@@ -340,6 +342,9 @@ int32_t mm_axis3_fast_2B_load_baby(mmv_fast_Amod3_type *pa, uint32_t v[2][16])
 ***********************************************************************
 **********************************************************************/
 
+/// @cond DO_NOT_DOCUMENT 
+
+
 static uint8_t TABLE_TYPE4_INDEX[135] =  {
   // %%TABLE MM_TABLE_CASE2B_BASIS_TYPE4_INDEX
 };
@@ -348,6 +353,7 @@ static uint8_t TABLE_TYPE4_COORD[135] =  {
   // %%TABLE MM_TABLE_CASE2B_BASIS_TYPE4_COORD
 };
 
+/// @endcond 
 
 
 /**  
@@ -389,6 +395,8 @@ int32_t mm_axis3_fast_2B_compute_v4(mmv_fast_Amod3_type *pa, uint32_t v[2][16])
 * Compute a suitable type-4 vector in case without Hadamard matrix
 ***********************************************************************
 **********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
 
 typedef struct {
     uint32_t tf[20];
@@ -631,6 +639,7 @@ static int32_t inline analyze_basis(s_2B2_type *s2)
     return -4004;
 }
 
+/// @endcond 
 
 
 

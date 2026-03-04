@@ -128,10 +128,11 @@ orbit 6_32 are precisely the vectors whose support is an umbral hexad
 contained in u11. From standard properties of the Mathieu group M_24
 we conclude that M_24 is transitive on chains of inclusions:
 
-  u6 \subset u11 \subset S, u6 an umbral hexad, u11 an umbral undecad.
+u6 is a subset of u11  is a subset of; with u6 an umbral hexad,
+and u11 an umbral undecad.
 
 So it suffices to analyze one specific case, e.g. 
-u6 = {0, 4, 8, 12, 16, 20}, and u11 \setminus u6 = {2, 7, 10, 15, 18}.
+u6 = {0, 4, 8, 12, 16, 20}, and u11 \\ u6 = {2, 7, 10, 15, 18}.
 We leave the details of the proof of the lemma to the reader.
 q.e.d.
 
@@ -158,8 +159,9 @@ for the transormed axis ``ax'`` instead.
 In the sequel we let ``ax`` be an axis such that there is a vector w3
 in the orbit 6_32 of Lambda_3 with f_2(w3) = Omega. By Corollary 2,
 the vector Omega is in V12(v(ax)). This implies that v(ax) is in  
-V12(Omega). Let \phi be an element g of \f$G_x0\f$ that maps Omega to
-v(ax). Let ``ax_0`` = \phi^{-1}(ax), and v4 =\phi^{-1}(f_2(w3)).
+V12(Omega). Let \f$phi\f$ be an element g of \f$G_x0\f$ that maps Omega
+to v(ax). Let ``ax_0`` = \f$\phi^{-1}\f$(ax),
+and v4 = \f$\phi^{-1}\f$(f_2(w3)).
 Then v(ax_0) = Omega, and the matrix M(ax_0) is a diagonal matrix
 with nonzero entries at the co-ordinates corresponding to an umbral
 undecad u11. By Lemma 1, the vector v4 in Lambda_2 corresponds to a

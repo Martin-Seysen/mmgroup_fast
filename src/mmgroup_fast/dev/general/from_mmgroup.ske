@@ -2,7 +2,12 @@
 #include <stdio.h>
 #include "mat24_functions.h"
 
+/**
+  @brief Return index of least significant bit of ``v1 & 0xffffff``.
 
+  If ``v1 & 0xffffff`` is 0 the the function returns 24.
+   
+*/
 // %%EXPORT px
 uint32_t fast_lsbit24(uint32_t v1)
 {

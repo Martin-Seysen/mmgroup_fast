@@ -5,7 +5,10 @@
  representing matrices of row vectors acting on the Griess algebra.
 */
 
+/// @cond DO_NOT_DOCUMENT 
 #define MM_OP_FAST_ALLOC
+/// @endcond 
+
 #include "mm_op_fast.h"
 #include "mm_op_sub.h"   
 
@@ -17,7 +20,9 @@
 
 
 
-
+/**
+   @brief Yet to be documented!
+*/
 // %%EXPORT p
 int32_t mm_op_fast_init(mmv_fast_matrix_type *pm, uint32_t p, uint32_t nrows, uint32_t mode)
 {
@@ -48,7 +53,9 @@ int32_t mm_op_fast_init(mmv_fast_matrix_type *pm, uint32_t p, uint32_t nrows, ui
 
 
 
-
+/**
+   @brief Yet to be documented!
+*/
 // %%EXPORT p
 int32_t mm_op_fast_alloc(mmv_fast_matrix_type *pm, uint32_t alloc_work)
 {
@@ -78,7 +85,9 @@ int32_t mm_op_fast_alloc(mmv_fast_matrix_type *pm, uint32_t alloc_work)
 }
 
 
-
+/**
+   @brief Yet to be documented!
+*/
 // %%EXPORT p
 int32_t mm_op_fast_normalize(mmv_fast_matrix_type *pm, uint32_t normalize_data)
 {
@@ -101,7 +110,9 @@ int32_t mm_op_fast_normalize(mmv_fast_matrix_type *pm, uint32_t normalize_data)
 }
 
 
-
+/**
+   @brief Yet to be documented!
+*/
 // %%EXPORT p
 int32_t mm_op_fast_dealloc(mmv_fast_matrix_type *pm, uint32_t work_only)
 {
@@ -172,7 +183,9 @@ int32_t mm_op_fast_copy_data(mmv_fast_matrix_type *pm_src, mmv_fast_matrix_type 
 
 
 
-
+/**
+   @brief Yet to be documented!
+*/
 // %%EXPORT p
 uint8_t* mm_op_fast_raw_vb_data(mmv_fast_matrix_type *pm, uint32_t *p_len)
 {

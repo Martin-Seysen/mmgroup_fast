@@ -165,6 +165,9 @@ int32_t mm_axis3_fast_find_v4(mmv_fast_Amod3_type *pa, uint32_t v2)
 *  Low-level analysis of a G_x0 orbit
 ********************************************************************/
 
+/**
+   @brief Zhis function is yet to be documented!
+*/
 // %%EXPORT p
 int32_t mm_axis3_fast_analyze_v4(mmv_fast_Amod3_type *pa, uint32_t v2, uint32_t *buf, uint32_t l_buf)
 {
@@ -335,8 +338,9 @@ special_case:
     return -3;      
 }
 
-
+/// @cond DO_NOT_DOCUMENT 
 #define err(loc, status) ((-100000 * (loc) + (status)) | 0x80000000UL)
+/// @endcond 
    
 
 /**
