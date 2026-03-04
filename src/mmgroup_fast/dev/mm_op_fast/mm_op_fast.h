@@ -108,7 +108,7 @@ typedef ALIGNED(64) struct {
       the preimage has to be negated.
 
       Note that function ``mat24_op_all_autpl`` in
-      module ``mat24_functions.c computes``the first 2048 entries of
+      module ``mat24_functions.c computes the first 2048 entries of
       the table.
     */
 
@@ -229,11 +229,11 @@ typedef ALIGNED(32) struct {
     */
     uint32_t eps;
     /**
-        Bit \f$i\f$ of member `vf`` is byte \f$i\f$ of member ``f_i``. 
+        Bit \f$i\f$ of member ``vf`` is byte \f$i\f$ of member ``f_i``. 
     */
     uint32_t vf;
     /**
-        Bit \f$i\f$ of member `vef`` is byte \f$i\f$ of member ``ef_i``. 
+        Bit \f$i\f$ of member ``vef`` is byte \f$i\f$ of member ``ef_i``. 
     */
     uint32_t vef;
     /**

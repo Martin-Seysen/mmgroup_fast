@@ -38,7 +38,7 @@ Header files
 .. doxygenfile:: mm_op_fast.h
 
 
-C functions dealiong with matrices in the Griess algebra
+C functions dealing with matrices in the Griess algebra
 .........................................................
 
 .. doxygenfile:: mm_op_fast_word.c

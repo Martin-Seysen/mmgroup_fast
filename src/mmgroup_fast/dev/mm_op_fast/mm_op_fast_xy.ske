@@ -466,7 +466,7 @@ uint8_t mmv_fast_read_table_perm64_xy(uint32_t signs, uint32_t pos)
 }
 
 
-/// @cond DO_NOT_DOCUMENT 
+/// @endcond 
 
 
 

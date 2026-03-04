@@ -93,7 +93,7 @@ More details are yet to be documented!
    delared as present with funtion ``mm_axis3_fast_load_sub_row``. 
       
    This function may also be used to reduce a subaxis instead of an
-   axis. If the argument ``v2`` is an element of the group \f$Q_{x0}\f
+   axis. If the argument ``v2`` is an element of the group \f$Q_{x0}\f$
    of type 2 (instead of zero) then we consider axis ``ax`` as a
    subaxis (instead of an axis), and ``v2`` as the 2A involution
    corrresponding the the accompanying axis of the subaxis.

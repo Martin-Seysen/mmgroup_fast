@@ -1,3 +1,10 @@
+/** @file mm_op_fast_init.c
+
+ File ``mm_op_fast_init.c`` provides the basic functions for
+ constructing structures of type ``mmv_fast_matrix_type``
+ representing matrices of row vectors acting on the Griess algebra.
+*/
+
 #define MM_OP_FAST_ALLOC
 #include "mm_op_fast.h"
 #include "mm_op_sub.h"   

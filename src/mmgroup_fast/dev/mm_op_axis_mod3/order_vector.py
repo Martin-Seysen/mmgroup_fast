@@ -2,90 +2,78 @@ from collections import defaultdict
 import numpy as np
 
 
-from mmgroup import MMV, MM0, MM, MMSpace
+from mmgroup import MMV, MM0, MM, MMSpace, mat24
+from mmgroup.clifford12 import bitmatrix64_mul
+from mmgroup.clifford12 import bitmatrix64_vmul
 
+####################################################################
+####################################################################
+# 21-bit LFSR with taps 19 and 21
+####################################################################
+####################################################################
 
+# Dimension and tap positions of LFSR
+DIM, TAPS = 23, [23, 18]
 
-
-def make_A12():
-    a = np.zeros((12, 12), dtype = np.int32)
-    MARKED = {0,1,2,3,4,7}
-    for i in range(12): a[i, i] = 1 if i in MARKED else -1
-    for i in range(1, 12): a[0, i] = a[i, 0] = 1
-    data = {
-        1: [8,9,10,11],
-        2: [8,9,10],
-        3: [8,9],
-        4: [8],
-    }
-    for i, row in data.items():
-        for y in row:
-            sign = 1 if y >= 0 else -1
-            j = abs(y)
-            a[i, j] = a[j, i] = sign
-    det = np.linalg.det(a)
-    idet = int(np.round(det))
-    assert abs(det - idet) < 1.0e-8
-    assert idet % 3 != 0
-    return a
-
-A12 = make_A12()
-
-def display_a12():
-    print("Submatrix of part A of vector v_0")
-    print(A12)
-    print("Determinant of submatrix is %.3f" %
-        np.linalg.det(A12))
-    #print([x for x in data_a24()])
-    
-MAP_A12 = [0,1,2,3,4,5,6,8,9,10,12,16]
-KER_A12 = [7]
-
-def data_a24():
-    for i in range(12):
-        ii = MAP_A12[i]
-        for j in range(i, 12):
-            jj, e = MAP_A12[j], A12[i,j]
-            if e:
-                 yield (int(e) % 3, 'A', ii, jj)
-    neg_diag = set(MAP_A12) | set(KER_A12)
-    for i in range(24):
-        if i not in neg_diag:
-            yield (2, 'A', i, i)
-
-
-def process_A24(verbose = 0):
-    A24 = np.zeros((24,24), dtype = np.uint32)
-    for x, tag, i, j in data_a24():
-        if tag == "A":
-           A24[i,j] = A24[j,i] = x
-    assert (A24[7] == 0).all()
-    A23 = np.copy(A24)
-    A23 = np.delete(A23, 7, 0)
-    A23 = np.delete(A23, 7, 1)
+def make_mat_lfsr(verbose = 0):
+    M = np.zeros(DIM, dtype = np.uint64)
+    for i in range(DIM - 1):
+         M[i+1] = 1 << i
+    for t in TAPS:
+        M[DIM - t] |= 1 << (DIM - 1)
     if verbose:
-        print("Part A of vector v_0 (modulo 3)")
-        print(A24)
-        #print(A)
-    det = np.linalg.det(A23)
-    idet = int(np.round(det))
-    assert abs(det - idet) < 1.0e-5
-    assert idet % 3 != 0
+        from mmgroup.bitfunctions import bin
+        print("Bit matrix for %d-bit LFSR" % DIM)
+        for i in range(DIM):
+            print(" ",  bin(M[i], DIM, 8, reverse=True))
+        print()
+    return M
+
+def mat_lfsr_repeated_square(M, e, verbose = 0):
+    """Return M ** (2**e)"""
+    M1 = np.copy(M)
+    for i in range(e):
+        M2 = np.copy(M1)
+        M1 = bitmatrix64_mul(M1, M2)
     if verbose:
-         print("Determinant of image of that part is %.3f"
-             % np.linalg.det(A23))
-    d, n = {}, 0
-    for i in range(24):
-        if A24[i,i] < 2:
-            d[(int(A24[i,i]), int(np.count_nonzero(A24[i])))] = i
-        else:
-            n += 1
-    assert set(d.values()) == set([0,1,2,3,4,7,8])
-    assert len(d) + n == 24
+        from mmgroup.bitfunctions import bin
+        print("Bit matrix to the power of 2**%d" % e)
+        for i in range(DIM):
+            print(" ",  bin(M1[i], DIM, 8, reverse=True))
+        print()
+    return M1
+
+def mat_V(verbose = 0):
+    M = make_mat_lfsr()
+    Me = mat_lfsr_repeated_square(M, 14)
+    Me = bitmatrix64_mul(Me, M)
+    COLS = 32
+    A = np.zeros((DIM, COLS), dtype = np.uint8)
+    v = 0x7ab3d5
+    #print(M.shape, Me.shape)
+    for i in range(COLS):
+        for sh in range(8):
+            v = bitmatrix64_vmul(v, Me, DIM)
+            for j in range(DIM):
+                 A[j,i] |= ((v >> j) & 1) << sh
     if verbose:
-         print("Hash values for part A:")
-         print(d)
-    return  A24, d
+        print("Subblock of generated LFSR table:")
+        print(A[5:15, 10:20])
+
+
+def display_bitmatrix(verbose = 1):
+    M = make_mat_lfsr(verbose)
+    mat_lfsr_repeated_square(M, 12, verbose)
+    mat_V(verbose)
+
+
+
+####################################################################
+####################################################################
+# Composing the vector v_0 with the axcs v^+ and v^-
+####################################################################
+####################################################################
+
 
 
 class MM_Matrix:
@@ -134,6 +122,25 @@ def std_matrix():
     return MM_Matrix().std_matrix()
 
 
+####################################################################
+####################################################################
+# Main program for testing
+####################################################################
+####################################################################
+
+
+
+def display_all():
+    #display_a12()
+    #A, sp, h, y = process_A24(verbose = 1)
+    x_tuples = [t for t in data_BCTX()]
+    ReduceGx0Data.display()
+    #display_bitmatrix(verbose = 1)
+    #print("Matrix A is sparse notation:")
+    #for i, e in enumerate(sp):
+    #    print("%07x" % e, end = "\n" if i % 8 == 7 else " ")
+    #print()
+
 if __name__ == "__main__":
-    display_a12()
-    process_A24(verbose = 1)
+    display_bitmatrix(verbose = 1)
+

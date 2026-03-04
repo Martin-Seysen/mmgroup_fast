@@ -1,3 +1,12 @@
+/** @file mm_op_fast_mode1.c
+
+ File ``mm_op_fast_init.c`` provides basic functions for manipulating
+ structures of type ``mmv_fast_matrix_type`` with ``mode = 1``. Such
+ a structure represents a matrix of up to four row vectors of integers
+ modulo 3 acting on the Griess algebra.
+*/
+
+
 #define MM_OP_FAST_ALLOC
 #include "mm_op_fast.h"
 #include "mm_op_sub.h"   
@@ -8,25 +17,34 @@
 //  %%GEN c
 
 
+/*********************************************************************
+** Obtain pointer to the data in the structure
+*********************************************************************/
+
 
 /** 
   @brief Return pointer to data of structure of type mmv_fast_matrix_type
 
-  Return a pointer to the data bytes in a structure of 
+  Return a pointer to the data in a structure of
   type ``mmv_fast_matrix_type`` referred by ``pm`` if ``pm->mode``
   is equal to 1, and data are present. Return NULL otherwise.
 */
-static uint8_t* ptr_data_mode1(mmv_fast_matrix_type *pm)
+static mmv_fast_type* ptr_data_mode1(mmv_fast_matrix_type *pm)
 {
-     if (pm == NULL) return NULL;
-     if (pm->mode == 1) {
+     if (pm != NULL && pm->mode == 1 && pm->p == 3) {
          mmv_fast_type **p_buf = pm->p_v.p_vb;
          mmv_fast_type *p_data = p_buf[pm->current & 1];
-         if (p_data == NULL) return NULL;
-         return p_data->b; 
+         return p_data;
      } 
      return NULL;
 }
+
+
+/*********************************************************************
+** Store data at some entries of the structure
+*********************************************************************/
+
+
 
 /** 
   @brief Store data to a structure of type mmv_fast_matrix_type
@@ -35,7 +53,7 @@ static uint8_t* ptr_data_mode1(mmv_fast_matrix_type *pm)
   type ``mmv_fast_matrix_type`` referred by ``pa``. The data to be
   stored are given by the array ``data`` of length ``len``.
 
-  Each entry ``x`` of that array describes an column in the 
+  Each entry ``x`` of that array refers to a column ``j`` in the
   structure ``a`` to  be modified. Bits 31,...,8 of an entry contain
   the index ``j`` of the column to be modified in 'sparse'
   representation. Bits 7,...,0 contain the data to be stored at this
@@ -53,19 +71,119 @@ int32_t mm_op_fast_mode1_put(mmv_fast_matrix_type *pm, uint32_t *data, uint32_t 
 {
     uint32_t i;
     int32_t v1, v2, status = 0;
-    uint8_t *pb = ptr_data_mode1(pm), b;
+    mmv_fast_type *pb = ptr_data_mode1(pm);
     if (pb == NULL) return -1;
     for (i = 0; i < len; ++i) {
         v1 = mm_aux_index_sparse_to_intern(data[i] & 0xffffff00UL);
         if (v1 >= 0) {
-            b = (uint8_t)(data[i] & 0xff); 
-            pb[v1] = b;
+            uint8_t b = (uint8_t)(data[i] & 0xff);
+            pb->b[v1] = b;
             v2 = mm_aux_index_check_intern(v1);
-            if (v2 > 0) pb[v2] = b;
+            if (v2 > 0) pb->b[v2] = b;
         } else status = -1;
     }
     return status;
 }
+
+
+
+/**
+  @brief An extremely dangerous low-level function!
+
+  This function is not for public use!
+
+  It stores the byte ``value`` at position ``index`` of the data
+  vector in the structure referreded by ``pm``. Inappropriate use
+  may lead to inconsistent data!
+*/
+// %%EXPORT p
+void mm_op_fast_mode1_poke(mmv_fast_matrix_type *pm, uint32_t index, uint32_t value)
+{
+    mmv_fast_type *pb = ptr_data_mode1(pm);
+    if (pb == NULL || index >= MM_FAST_BYTELENGTH) return;
+    pb->b[index] = (uint8_t)(value & 0xff);
+}
+
+
+
+/*********************************************************************
+** Zero the vector in the structure
+*********************************************************************/
+
+
+/**
+  @brief Store zero to structure of type mmv_fast_matrix_type
+
+  The function stores zero to a structure ``a`` of
+  type ``mmv_fast_matrix_type`` referred by ``pa``. It performs
+  no action if ``a->mode != 1``.
+*/
+// %%EXPORT p
+void mm_op_fast_mode1_zero(mmv_fast_matrix_type *pm)
+{
+    mmv_fast_type *pb = ptr_data_mode1(pm);
+    if (pb != 0) memset(pb, 0, MM_FAST_BYTELENGTH * sizeof(uint8_t));
+}
+
+
+/*********************************************************************
+** Add data to some entries in the structure
+*********************************************************************/
+
+
+/**
+  @brief Add data to a structure of type mmv_fast_matrix_type
+
+  The function adds data to a structure ``a`` of
+  type ``mmv_fast_matrix_type`` referred by ``pa``. The data to be
+  stored are given by the array ``data`` of length ``len``.
+
+  Each entry ``x`` of that array refers to a column ``j`` in the
+  structure ``a`` to  be modified. The format of such an entry
+  is as in function ``mm_op_fast_mode1_put``. But we add the
+  value  ``(x >> (2 * k)) & 3`` to the entry in row ``k``
+  and column ``j`` of the structure ``a`` for ``0 <= k < 4``,
+  instead of storing it there.
+
+  Illegal indices are ignored. The function performs no action
+  if ``a->mode != 1``, or if no data are allocated for ``a``.
+
+  The function returns 0 if all data have been stored successfully
+  and -1 otherwise. The function fails if ``a->mode != 1``.
+*/
+// %%EXPORT p
+int32_t mm_op_fast_mode1_add_sparse(mmv_fast_matrix_type *pm, uint32_t *data, uint32_t len)
+{
+    uint32_t i;
+    int32_t v1, v2, status = 0;
+    mmv_fast_type *pb = ptr_data_mode1(pm);
+    if (pb == NULL) return -1;
+    for (i = 0; i < len; ++i) {
+        v1 = mm_aux_index_sparse_to_intern(data[i] & 0xffffff00UL);
+        if (v1 >= 0) {
+            uint8_t x = (uint8_t)(data[i] & 0xff), r;
+            uint8_t y = pb->b[v1];
+            r = x & y;
+            r |= (r << 1) & (x ^ y);
+            r &= 2;
+            r = x + y - r - (r >> 1);
+            pb->b[v1] = r;
+            v2 = mm_aux_index_check_intern(v1);
+            if (v2 > 0) pb->b[v2] = r;
+        } else status = -1;
+    }
+    return status;
+}
+
+
+
+
+
+
+/*********************************************************************
+** Load data from the structure
+*********************************************************************/
+
 
 
 /** 
@@ -96,7 +214,7 @@ int32_t mm_op_fast_mode1_get(mmv_fast_matrix_type *pm, uint32_t *data, uint32_t 
 {
     uint32_t i;
     int32_t v1, status = 0;
-    uint8_t *pb = ptr_data_mode1(pm), b, tmp;
+    mmv_fast_type  *pb = ptr_data_mode1(pm);
     if (pb == NULL) {
         for (i = 0; i < len; ++len) data[i] |= 0xffUL; 
         return -1;
@@ -105,8 +223,8 @@ int32_t mm_op_fast_mode1_get(mmv_fast_matrix_type *pm, uint32_t *data, uint32_t 
         data[i] &= 0xffffff00UL;  
         v1 = mm_aux_index_sparse_to_intern(data[i]);
         if (v1 >= 0) {
-            b = pb[v1];
-            tmp = (b ^ (b >> 1)) & 0x55;
+            uint8_t b = pb->b[v1];
+            uint8_t tmp = (b ^ (b >> 1)) & 0x55;
             b ^= tmp ^ (tmp << 1);
             data[i] |= b;
         }
@@ -119,37 +237,192 @@ int32_t mm_op_fast_mode1_get(mmv_fast_matrix_type *pm, uint32_t *data, uint32_t 
 }
 
 
-/** 
-  @brief Store zero to structure of type mmv_fast_matrix_type
 
-  The function stores zero to a structure ``a`` of
-  type ``mmv_fast_matrix_type`` referred by ``pa``. It performs
-  no action if ``a->mode != 1``.
-*/
-// %%EXPORT p
-void mm_op_fast_mode1_zero(mmv_fast_matrix_type *pm)
-{
-    if (pm->mode == 1) {
-        mmv_fast_type **p_buf = pm->p_v.p_vb;
-        v32_8_type *v32 = (p_buf[pm->current & 1])->v32;
-        memset(v32, 0, MM_FAST_BYTELENGTH * sizeof(uint8_t)); 
-    } 
-}
+/*********************************************************************
+** Load signs of some entries in the structure
+*********************************************************************/
+
+
+
 
 
 /** 
-  @brief An extremely dangerous low-level function!
+  @brief Load signs from structure of type mmv_fast_matrix_type
 
-  Not for public use!!!!
+  The function loads the signs of some entries from row ``row`` in a
+  structure ``a`` of type ``mmv_fast_matrix_type`` referred by ``pa``.
+  The signs to be loaded are given by the array ``data`` of
+  length ``len``. So this function is the analogue of
+  function ``mm_aux_mmv_extract_sparse_signs`` in the *mmgroup*
+  package.
+
+  Entry ``sp[i]`` specifies a multiple ``c[i] * u[i]`` of a unit 
+  vector ``u[i]``. Let ``m[i]`` be the coordinate of
+  vector ``mv`` with respect to the unit vector ``u[i]``. We
+  put ``s[i] = 0`` if ``m[i] = c[i]`` and ``s[i] = 1`` 
+  if ``m[i] = -c[i]``. In all other cases the function fails
+  an returns a negative value. In case of success it returns the
+  sum of the values ``s[i] << i``, where ``i`` ranges from ``0``
+  to ``n - 1``.
 */
 // %%EXPORT p
-void mm_op_fast_mode1_poke(mmv_fast_matrix_type *pm, uint32_t index, uint32_t value)
+uint32_t mm_op_fast_mode1_sparse_signs(mmv_fast_matrix_type *pm, uint32_t row, uint32_t *sp, uint32_t n)
 {
-    uint8_t *pb = ptr_data_mode1(pm);
-    if (pb == NULL) return;
-    if (index >= MM_FAST_BYTELENGTH) return;
-    pb[index] = (uint8_t)(value & 0xff);
+    uint32_t result = 0, err = 2, sh = 2 * row, i;
+    mmv_fast_type  *pb = ptr_data_mode1(pm);
+    if (pb == NULL || row >= 4 || n > 31) return -1;
+    for (i = 0; i < n; ++i) {
+        uint32_t d = sp[i];
+        uint32_t v1 = mm_aux_index_sparse_to_intern(d & 0xffffff00UL);
+        if (v1 == 0) return -1;
+        uint32_t b = pb->b[v1] >> sh;
+        err &= (b + 1) & (d + 1);
+        result ^= ((b ^ d) & 1) << i;
+    }
+    return (err & 2) ? (int32_t) result : -1;
 }
+
+
+
+/*********************************************************************
+** Check if row vectors in the structure are zero
+*********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+static inline void zero_diagBC(mmv_fast_matrix_type *pm)
+{
+    uint32_t i;
+    mmv_fast_type  *pf = ptr_data_mode1(pm);
+    if (pf == NULL) return;
+    uint8_t *pb = pf->b + 24 * 32;
+    for (i = 0; i < 24 * 32; i += 33) pb[i + 24*32] = pb[i] = 0;
+}
+
+// %%FOR SIZE in [24, 32]
+static inline int32_t
+check_zero_rows%{SIZE}(mmv_fast_matrix_type *pm, uint32_t start, uint32_t n)
+{
+    uint32_t i;
+    uint64_t res = 0;
+    mmv_fast_type  *pf = ptr_data_mode1(pm);
+    if (pf == NULL) return -0x10;
+    mmv_fast_row32_type *p_row = pf->r32 + start;
+  #ifdef GCC_VECTORS
+    mmv_fast_row32_type acc;
+    memset(&acc, 0, sizeof(acc));
+    for (i = 0; i < n; ++i) {
+        acc.v8_32[0] |= p_row[i].v8_32[0] + (uint8_t)1;
+    }
+    res = acc.u64[0] | acc.u64[1] | acc.u64[2];
+    // %%IF* SIZE == 32
+    res |= acc.u64[3];
+    // %%END IF
+  #else
+    for (i = 0; i < n; ++i) {
+        // %%FOR* j in range(SIZE // 8)
+        res |= p_row[i].u64[%{j}] + 0x0101010101010101ULL;
+        // %%END FOR
+    }
+  #endif
+    res |= res >> 32;
+    res |= res >> 16;
+    res |= res >> 8;
+    res = ((res & 0x80) >> 4) ^ ((res & 0x20) >> 3)
+        ^ ((res & 0x8) >> 2) ^ ((res & 0x2) >> 1);
+    return (int32_t)(res & 0xf);
+}
+
+// %%END FOR
+
+/// @endcond 
+
+
+/** 
+  @brief Check if structure of type mmv_fast_matrix_type is zero
+
+  The function checks if each of the four row vectors in the
+  structure referred by ``pm`` is zero. It sets bit ``i`` of the
+  return value if and only if the ``i``-th row vector is nonzero. If
+  bit ``i`` in the argument ``check`` is zero then bit ``i`` of the
+  return value is set to zero without inspecting the ``i``-th row.
+
+  The function returns a negative value if any of these row vectors
+  cannot be accessed.
+*/
+int32_t mm_op_fast_mode1_check_zero(mmv_fast_matrix_type *pm, uint32_t check)
+{
+    int32_t res = 0, chk = check & 0xf;
+    mmv_fast_type  *pf = ptr_data_mode1(pm);
+    if (pf == NULL) return -0x10;
+    zero_diagBC(pm);
+    res |= check_zero_rows24(pm, 0, 72) & chk;
+    if (res == chk) return res;
+    res |= check_zero_rows32(pm, MM_AUX_XOFS_T / 32, 2 * 759) & chk;
+    if (res == 0xf) return res;
+    res |= check_zero_rows24(pm, MM_AUX_XOFS_X / 32, 3 * 2048) & chk;
+    return res;
+}
+
+
+
+/*********************************************************************
+** Compute a coarse hash value over a vector
+*********************************************************************/
+
+
+/**
+  @brief Coarse hash value of structure of type mmv_fast_matrix_type
+
+  The function compute a coarse has value over the matrix referred
+  by pointer ``pa``. If  bit ``i`` in the argument ``check`` is zero
+  then row ``i`` of the vector is ignored for the computation of the
+  hash value.
+
+  The intended use case is to hash over images of a fixed matrix
+  under the action different elements of the Monster, where at least
+  one of the considered row vectors is close to a random vector.
+  For hashing over general matrices, this function is too coarse.
+
+  Caution!
+
+  This function is not portable between different implementations!
+*/
+uint64_t mm_op_fast_mode1_hash_coarse(mmv_fast_matrix_type *pm, uint32_t check)
+{
+     uint64_t mask = (check & 1) + ((check & 2) << 1)
+                   + ((check & 4) << 3) + ((check & 8) << 3);
+     uint64_t h = 0x1ULL;
+     mmv_fast_type  *pf = ptr_data_mode1(pm);
+     uint32_t i;
+     if (pf == NULL) return 0;
+     mask *= 0x0303030303030303ULL;
+     #define CH 0x9e3779b97f4a7c15ULL // close to 2**63 * (sqrt(5)-1)
+     #define hash(h, i) do { \
+         uint64_t r = pf->u64[i] & mask; \
+         uint64_t t = (r ^ (r >> 1))  & 0x5555555555555555ULL; \
+         r &= t ^ (t << 1); \
+         h = h * CH + r; \
+     } while (0)
+
+     zero_diagBC(pm);
+     for (i = 0; i < MM_FAST_BYTELENGTH/8 - 1; i += 317) {
+         i += ((i + 1) & 4) >> 2;
+         hash(h, i);
+     }
+     for (i = MM_AUX_XOFS_T/8 + 3; i < MM_AUX_XOFS_X/8; i += 0x394) {
+         hash(h, i);
+     }
+     #undef hash
+     #undef CH
+     return h;
+}
+
+
+
+
+
+
 
 
 
