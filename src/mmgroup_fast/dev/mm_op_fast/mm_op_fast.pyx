@@ -138,7 +138,11 @@ cdef class MMOpFastMatrix:
         as an instance of class |MM| and ``e`` is an integer.
         The vector is updated and the updated vector is returned.
         """
-        cdef uint32_t[:] g_data = g.mmdata
+        cdef uint32_t[:] g_data
+        if isinstance(g, np.ndarray):
+            g_data = g
+        else:
+            g_data = g.mmdata
         cdef int32_t status
         status = mm_op_fast_word(&self.m, &g_data[0], len(g_data), e)
         if status >= 0:
@@ -157,7 +161,11 @@ cdef class MMOpFastMatrix:
         The vector is updated and the updated vector is returned.
         """
         import time
-        cdef uint32_t[:] g_data = g.mmdata
+        cdef uint32_t[:] g_data
+        if isinstance(g, np.ndarray):
+            g_data = g
+        else:
+            g_data = g.mmdata
         cdef uint32_t status = 0, i
         t = time.time()
         for i in range(n):

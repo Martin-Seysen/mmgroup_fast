@@ -211,45 +211,9 @@ def one_test_fast_reduce(g):
     assert h == MM()
 
 
-@pytest.mark.bench
 @pytest.mark.mm_amod3
 def test_fast_reduce(ncases = 10):
     for i in range(ncases):
         one_test_fast_reduce(MM('r'))
-
-
-
-def count_tau(a):
-    b = (a >> 28) & 7 == 5
-    return np.count_nonzero(b)
-
-@pytest.mark.bench
-@pytest.mark.mm_amod3
-def test_bench_fast_reduce_mm(ncases = 1000):
-    import time
-    Mat0 = std_matrix()
-    NDATA = 100
-    NTESTS = 1000
-    matrices = []
-    max_tau, sum_tau = 0, 0.0
-    for i in range(NDATA):
-        matrices.append(Mat0.copy().mul_exp(MM0('r',8)))
-        a = matrices[-1].copy().reduce_axes()
-        n_tau = count_tau(a)
-        max_tau = max(n_tau, max_tau)
-        sum_tau += n_tau
-    print("\nBenchmark for reduction of an axis matrix")
-    t = time.time()
-    for j in range(NTESTS):
-        m = matrices[i % NDATA].copy()
-        m.reduce_axes()
-        m.reduce_G_x0()
-    t =  time.time() - t
-    print("Average run time is %.3f ms" % (1000*t/NTESTS))
-    print("Number of triality elements: max = %d, ave = %.2f" 
-            % (max_tau, sum_tau / NDATA))
-
-
-
 
 
