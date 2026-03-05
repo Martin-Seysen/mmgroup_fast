@@ -14,6 +14,7 @@ More details are yet to be documented!
 #include "mm_op_fast.h"
 #include "mm_op_fast_intern.h"
 #include "mm_op_sub.h"   
+#include "mm_reduce.h"
 
 
 //  %%GEN h
@@ -166,7 +167,7 @@ int32_t mm_axis3_fast_find_v4(mmv_fast_Amod3_type *pa, uint32_t v2)
 ********************************************************************/
 
 /**
-   @brief Zhis function is yet to be documented!
+   @brief This function is yet to be documented!
 */
 // %%EXPORT p
 int32_t mm_axis3_fast_analyze_v4(mmv_fast_Amod3_type *pa, uint32_t v2, uint32_t *buf, uint32_t l_buf)
@@ -298,6 +299,9 @@ int32_t mm_axis3_fast_num_entries_A_t(mmv_fast_matrix_type *pm, uint32_t row)
 
 
 
+
+
+
 /**
    @brief Compute exponent of triality element for reducing an axis
 
@@ -343,8 +347,15 @@ special_case:
 /// @endcond 
    
 
+/**********************************************************************
+* Reduce pair of orthogonal 2A axes
+**********************************************************************/
+
+
+
 /**
-   @brief Compute exponent of triality element for reducing an axis
+   @brief Reduce Reduce pair of orthogonal 2A axes
+
 
    Yet to be documented!!!
 
@@ -437,17 +448,253 @@ baby_axis_found:
         if (status < 0) return err(31, status);
         len1 = status;
         v4 =  gen_leech2_op_word(v4, pg + len, len1);
+        status = mm_op_fast_word(pm, pg + len, len1, 1);
+        if (status < 0) return err(24, status);
         len += len1;
         e1 = (v4 >> 24) & 1;
         pg[len] = MMGROUP_ATOM_TAG_IT + 2 - e1;
         v4 =  gen_leech2_op_word(v4, pg + len, 1);
+        status = mm_op_fast_word(pm, pg + len, 1, 1);
+        if (status < 0) return err(24, status);
         ++len;
     }
     if (v4 != 0x1000000UL) return -3913;
     return len;
 }
 
-#undef err
+
+
+/**********************************************************************
+* Find element of G_x0 that reduces a transformed vector v_1
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT
+
+
+/**
+   @brief Store watermark for matrix 'B' referred by ``pa`` in ``data``
+
+   Store watermark for row i of  matrix 'B' in data[i],
+   for 0 <= i < 24. See file ``mm_order_find_Gx0_via_v1_mod3``
+   for the watermarking function.
+*/
+static inline void
+_watermark_A(mmv_fast_Amod3_type *pa, uint32_t *data)
+{
+    mmv_fast_row32_type *pa1 = pa->a + 24;
+    uint64_t *pw = pa1->u64, r;
+    uint8_t *pb = pa1->b;
+    uint32_t i;
+    #define MASK1 0x0101010101010101ULL
+    #define MASK2 0x0202020202020202ULL
+    #define MASK3 0x0303030303030303ULL
+    for (i = 0; i < 24; ++i) {
+        r = ((pw[0] & MASK3) + MASK1) & MASK2;
+        r += ((pw[1] & MASK3) + MASK1) & MASK2;
+        r += ((pw[2] & MASK3) + MASK1) & MASK2;
+        r += r >> 8;
+        r += r >> 16;
+        r += r >> 32;
+        r = (r >> 1) & 0x1f;
+        r += (uint32_t)(pb[0] & 3) << 8;
+        data[i] = (uint32_t)r;
+        pw += 4;
+        pb += 33;
+    }
+    #undef MASK1
+    #undef MASK2
+    #undef MASK3
+}
+
+
+/**
+   @brief Store entries of matrix 'B' referred by ``pa`` in ``data``
+
+   On input, entries data[0],...,data[len-1] describe entries of
+   matrix 'B' referred by ``pa`` in *sparse representation*
+   The function replaces data[0],...,data[len-1] by the values
+   of these entries.
+*/
+static inline void
+_load_sparse_A(mmv_fast_Amod3_type *pa, uint32_t *data, uint32_t len)
+{
+    mmv_fast_row32_type *pa1 = pa->a + 24;
+    uint8_t *pb = pa1->b;
+    uint32_t k, i, j;
+    for (k = 0; k < len; ++k) {
+        i = (data[k] >> 14) & 0x1f;
+        j = (data[k] >> 8) & 0x1f;
+        data[k] &= 0xffffff00UL;
+        data[k] |= pb[(i << 5) + j] & 3;
+    }
+}
+
+
+
+
+/// @endcond
+
+
+
+/**
+   @brief Find element of G_x0 that reduces a transformed vector v_1
+
+   The function computes the element ``g**-1`` of the
+   subgroup \f$G_{x0}\f$ of the Monster from a vector ``v = v_1 * g``.
+   Here ``v_1`` is the vector in row 2 of the structure referred
+   by ``pm``. The element ``g**-1`` is returned as a word of generators
+   in the array ``g`` as  described in file ``mmgroup_generators.h``.
+   The function returns the  length of element ``g**-1`` in case of
+   success, and a negative value in case failure.
+
+   Implementation of this function is along the lines of
+   function ``mm_order_find_Gx0_via_v1_mod3`` in
+   file ``mm_vector_v1_mod3.c`` in the *mmgroup* package.
+
+   Buffer ``g`` must have length at least 10.
+
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_reduce_G_x0(mmv_fast_matrix_type *pm, uint32_t *g)
+{
+    uint32_t i;
+    int32_t res;
+    mmv_fast_Amod3_type am3;
+    mm_order_find_Gx0_type s;
+
+    if ((res = mm_order_find_Gx0_v1_mod3_state(&s, 0)) < 0) return res;
+    res = mm_axis3_fast_load(pm, 2, &am3);
+    if (res < 0) return err(31, res);
+    res = mm_axis3_fast_echelon(&am3, 0);
+    if (res < 0) return err(32, res);
+    if (mm_axis3_fast_intersect(&am3, 0) != 0) return err(30, -1);
+    if (am3.len_B[0] != 23 ||am3.len_B[1] != 1)
+        return err(30, -100 - am3.len_B[0]);
+    uint64_t v3 = mm_axis3_fast_to_leech_mod3(&am3, 24 + 23);
+    uint64_t v2 = gen_leech3to2(v3);
+    if ((v2 >> 24) != 4) return err(30, -3);
+    s.data[0] = (uint32_t)(v2 & 0xffffffUL);
+    if ((res = mm_order_find_Gx0_v1_mod3_state(&s, 1)) < 0) return res;
+    res = mm_axis3_fast_op_G_x0(&am3, s.data, s.length, 0);
+    if (res < 0) return err(33, res);
+    _watermark_A(&am3, s.data);
+    if ((res = mm_order_find_Gx0_v1_mod3_state(&s, 2)) < 0) return res;
+    _load_sparse_A(&am3, s.data, s.length);
+    if ((res = mm_order_find_Gx0_v1_mod3_state(&s, 3)) < 0) return res;
+    mm_op_fast_mode1_extract_sparse(pm, 2, s.data, s.length);
+    if ((res = mm_order_find_Gx0_v1_mod3_state(&s, 4)) < 0) return res;
+    mm_op_fast_mode1_extract_sparse(pm, 2, s.data, s.length);
+    if ((res = mm_order_find_Gx0_v1_mod3_state(&s, 5)) < 0) return res;
+    for (i = 0; i < s.length; ++i) g[i] = s.data[i];
+    return s.length;
+}
+
+
+
+/**********************************************************************
+* Set the standard axis
+**********************************************************************/
+
+
+/// @cond DO_NOT_DOCUMENT
+
+#define SP(tag, i, j, v0, v1) \
+    ((tag << 25) + (i << 14) + (j << 8) + (v1 << 2) + v0)
+
+static uint32_t V_PM[4] = {
+    SP(1, 2, 2, 1, 1),
+    SP(1, 2, 3, 2, 2),
+    SP(1, 3, 3, 1, 1),
+    SP(2, 2, 3, 1, 2)
+};
+
+#undef SP
+
+/// @endcond
+
+
+/**
+   @brief Set Matrix to the standard triple v^+, v^-, v_1
+
+
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_mode1_set_vstd(mmv_fast_matrix_type *pm, uint32_t hash)
+{
+    int32_t res = mm_op_fast_alloc(pm, 1);
+    if (res < 0) return -2;
+    if (pm->mode != 1) return -3;
+    uint32_t *pv1 = (uint32_t *)MM_VECTOR_V1_MOD3_TABLE;
+    uint32_t len_pv1 = pv1[0], i, buf[64];
+    ++pv1;
+    if (len_pv1 > sizeof(buf)/sizeof(uint32_t)) return -4;
+ 
+    for (i = 0; i < len_pv1; ++i) {
+        buf[i] = (pv1[i] & 0xffffff00UL) + ((pv1[i] & 3) << 4);
+    }
+    res = mm_op_fast_mode1_add_sparse(pm, buf, len_pv1);
+    if (res < 0) return res;
+    res = mm_op_fast_mode1_add_sparse(pm, V_PM, 4);
+    if (res < 0) return res;
+    return 0;
+}
+
+
+static inline int32_t subtract_vstd(mmv_fast_matrix_type *pm)
+{
+    int32_t res;
+    if (pm->mode != 1) return -3;
+    uint32_t *pv1 = (uint32_t *)MM_VECTOR_V1_MOD3_TABLE;
+    uint32_t len_pv1 = pv1[0], i, buf[64];
+    ++pv1;
+    if (len_pv1 > sizeof(buf)/sizeof(uint32_t)) return -4;
+
+    for (i = 0; i < len_pv1; ++i) {
+        buf[i] = (pv1[i] & 0xffffff00UL) + (((pv1[i] & 3) ^ 3) << 4);
+    }
+    res = mm_op_fast_mode1_add_sparse(pm, buf, len_pv1);
+    if (res < 0) return res;
+    for (i = 0; i < 4; ++i) buf[i] = V_PM[i] ^ 0xf;
+    res = mm_op_fast_mode1_add_sparse(pm, buf, 4);
+    if (res < 0) return res;
+    return 0;
+}
+
+
+/**********************************************************************
+* Find element of Monster from triple of vectors v^+, v^-, v_1
+**********************************************************************/
+
+
+/**
+   @brief Find element of Monster from triple of vectors v^+, v^-, v_1
+
+
+   Yet to be documented!!!
+
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_reduce_v_g(mmv_fast_matrix_type *pm, uint32_t *g, uint32_t lg, uint32_t check)
+{
+     int32_t res;
+     uint32_t len_g, len_g1;
+     if (lg < 16) return -11;
+     len_g = res = mm_axis3_fast_reduce_axes(pm, g, lg);
+     if (res < 0) return res;
+     if (len_g + 10 > lg) return -12;
+     len_g1 = res = mm_axis3_fast_reduce_G_x0(pm, g+len_g);
+     if (res < 0) return res;
+     if (check) {
+         mm_op_fast_word(pm, g + len_g, res, 1);
+         if ((res = subtract_vstd(pm)) < 0) return res;
+         res = mm_op_fast_mode1_check_zero(pm, 7);
+         if (res < 0) return res;
+         if (res) return -10000-(res & 7);
+     }
+     len_g += len_g1;
+     return len_g;
+}
+
 
 
 //  %%GEN h

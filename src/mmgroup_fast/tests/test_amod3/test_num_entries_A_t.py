@@ -9,7 +9,7 @@ from mmgroup.generators import gen_leech2_reduce_type4
 from mmgroup.axes import Axis, BabyAxis
 from mmgroup_fast.mm_op_fast import MMOpFastMatrix, MMOpFastAmod3
 from mmgroup_fast.mm_op_fast import mm_axis3_fast_orbit_dict
-from mmgroup_fast.dev.mm_op_axis_mod3.order_vector import std_matrix
+#from mmgroup_fast.dev.mm_op_axis_mod3.order_vector import std_matrix
 
 MMV3 = MMV(3)
 
@@ -64,6 +64,12 @@ def mm_t_data(e):
     a[0] = 0xD0000003 - e
     return a, MM0('a', a)
 
+
+
+def std_matrix():
+    m = MMOpFastMatrix(3, 4, 1)
+    m.set_vstd()
+    return m
 
 def reduce_mm(test, g, baby=True, check_C = True, verbose = 0):
     m = std_matrix()
@@ -197,12 +203,19 @@ def test_reduce_mm(ncases = 1, processes = 16, verbose = 0):
 
 
 
-def fast_test_reduce(g):
+def one_test_fast_reduce(g):
     m = std_matrix()
     m.mul_exp(g)
-    c_result = m.reduce_axes()
+    c_result = m.reduce_v_g(check=1)
     h = g * MM('a', c_result)
-    assert h.in_G_x0()
+    assert h == MM()
+
+
+@pytest.mark.bench
+@pytest.mark.mm_amod3
+def test_fast_reduce(ncases = 10):
+    for i in range(ncases):
+        one_test_fast_reduce(MM('r'))
 
 
 
@@ -212,7 +225,7 @@ def count_tau(a):
 
 @pytest.mark.bench
 @pytest.mark.mm_amod3
-def test_bench_fast_reduce_mm(ncases = 10):
+def test_bench_fast_reduce_mm(ncases = 1000):
     import time
     Mat0 = std_matrix()
     NDATA = 100
@@ -230,6 +243,7 @@ def test_bench_fast_reduce_mm(ncases = 10):
     for j in range(NTESTS):
         m = matrices[i % NDATA].copy()
         m.reduce_axes()
+        m.reduce_G_x0()
     t =  time.time() - t
     print("Average run time is %.3f ms" % (1000*t/NTESTS))
     print("Number of triality elements: max = %d, ave = %.2f" 

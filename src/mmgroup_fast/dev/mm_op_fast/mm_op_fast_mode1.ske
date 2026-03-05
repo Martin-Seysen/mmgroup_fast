@@ -249,37 +249,38 @@ int32_t mm_op_fast_mode1_get(mmv_fast_matrix_type *pm, uint32_t *data, uint32_t 
 /** 
   @brief Load signs from structure of type mmv_fast_matrix_type
 
-  The function loads the signs of some entries from row ``row`` in a
-  structure ``a`` of type ``mmv_fast_matrix_type`` referred by ``pa``.
-  The signs to be loaded are given by the array ``data`` of
-  length ``len``. So this function is the analogue of
-  function ``mm_aux_mmv_extract_sparse_signs`` in the *mmgroup*
-  package.
+  The function extracts certain entries from row ``row`` in a
+  structure of type ``mmv_fast_matrix_type`` referred by ``pa``.
+  The extracted entries depend on the data in the array ``sp`` of
+  length ``length``; they are merged into that array. Operation of
+  this function on the array ``sp`` is precisely the same as the
+  operation of function ``mm_aux_mmv_extract_sparse`` in
+  the *mmgroup* package. For details we refer to the documentation
+  of that function.
 
-  Entry ``sp[i]`` specifies a multiple ``c[i] * u[i]`` of a unit 
-  vector ``u[i]``. Let ``m[i]`` be the coordinate of
-  vector ``mv`` with respect to the unit vector ``u[i]``. We
-  put ``s[i] = 0`` if ``m[i] = c[i]`` and ``s[i] = 1`` 
-  if ``m[i] = -c[i]``. In all other cases the function fails
-  an returns a negative value. In case of success it returns the
-  sum of the values ``s[i] << i``, where ``i`` ranges from ``0``
-  to ``n - 1``.
+  The return type of this function is void, as that of
+  function ``mm_aux_mmv_extract_sparse``. If any of the
+  arguments ``pm``, ``row``, or ``sp`` is illegal then no action
+  is performed.
 */
 // %%EXPORT p
-uint32_t mm_op_fast_mode1_sparse_signs(mmv_fast_matrix_type *pm, uint32_t row, uint32_t *sp, uint32_t n)
+void mm_op_fast_mode1_extract_sparse(mmv_fast_matrix_type *pm, uint32_t row, uint32_t *sp, uint32_t length)
 {
-    uint32_t result = 0, err = 2, sh = 2 * row, i;
-    mmv_fast_type  *pb = ptr_data_mode1(pm);
-    if (pb == NULL || row >= 4 || n > 31) return -1;
-    for (i = 0; i < n; ++i) {
-        uint32_t d = sp[i];
-        uint32_t v1 = mm_aux_index_sparse_to_intern(d & 0xffffff00UL);
-        if (v1 == 0) return -1;
-        uint32_t b = pb->b[v1] >> sh;
-        err &= (b + 1) & (d + 1);
-        result ^= ((b ^ d) & 1) << i;
+    uint32_t sh = 2 * row;
+    mmv_fast_type  *pf = ptr_data_mode1(pm);
+    uint8_t *pb = pf->b;
+    if (pb == NULL || row >= 4 || sp == NULL) return;
+
+    for ( ;length--; ++sp) {
+        uint32_t i_intern;
+        if ((*sp & 0xE000000UL) == 0) continue;
+        i_intern = mm_aux_index_sparse_to_intern(*sp);
+        if (i_intern >= MM_AUX_LEN_V) continue;
+        uint32_t k = (pb[i_intern] >> sh) & 3;
+        k += (k + 1) >> 2;
+        k = (k ^ *sp) & 3;
+        *sp = (*sp & 0xffffff00) + k;
     }
-    return (err & 2) ? (int32_t) result : -1;
 }
 
 
@@ -312,7 +313,7 @@ check_zero_rows%{SIZE}(mmv_fast_matrix_type *pm, uint32_t start, uint32_t n)
     mmv_fast_row32_type acc;
     memset(&acc, 0, sizeof(acc));
     for (i = 0; i < n; ++i) {
-        acc.v8_32[0] |= p_row[i].v8_32[0] + (uint8_t)1;
+        acc.v8_32[0] |= p_row[i].v8_32[0] ^ (p_row[i].v8_32[0] >> 1);
     }
     res = acc.u64[0] | acc.u64[1] | acc.u64[2];
     // %%IF* SIZE == 32
@@ -321,15 +322,15 @@ check_zero_rows%{SIZE}(mmv_fast_matrix_type *pm, uint32_t start, uint32_t n)
   #else
     for (i = 0; i < n; ++i) {
         // %%FOR* j in range(SIZE // 8)
-        res |= p_row[i].u64[%{j}] + 0x0101010101010101ULL;
+        res |= p_row[i].u64[%{j}] ^ (p_row[i].u64[%{j}] >> 1);
         // %%END FOR
     }
   #endif
     res |= res >> 32;
     res |= res >> 16;
     res |= res >> 8;
-    res = ((res & 0x80) >> 4) ^ ((res & 0x20) >> 3)
-        ^ ((res & 0x8) >> 2) ^ ((res & 0x2) >> 1);
+    res = ((res & 0x40) >> 3) ^ ((res & 0x10) >> 2)
+        ^ ((res & 0x4) >> 1) ^ (res & 0x1);
     return (int32_t)(res & 0xf);
 }
 
@@ -350,17 +351,18 @@ check_zero_rows%{SIZE}(mmv_fast_matrix_type *pm, uint32_t start, uint32_t n)
   The function returns a negative value if any of these row vectors
   cannot be accessed.
 */
+// %%EXPORT p
 int32_t mm_op_fast_mode1_check_zero(mmv_fast_matrix_type *pm, uint32_t check)
 {
     int32_t res = 0, chk = check & 0xf;
     mmv_fast_type  *pf = ptr_data_mode1(pm);
     if (pf == NULL) return -0x10;
     zero_diagBC(pm);
-    res |= check_zero_rows24(pm, 0, 72) & chk;
+    res |= check_zero_rows24(pf, 0, 72) & chk;
     if (res == chk) return res;
-    res |= check_zero_rows32(pm, MM_AUX_XOFS_T / 32, 2 * 759) & chk;
+    res |= check_zero_rows32(pf, MM_AUX_XOFS_T / 32, 2 * 759) & chk;
     if (res == 0xf) return res;
-    res |= check_zero_rows24(pm, MM_AUX_XOFS_X / 32, 3 * 2048) & chk;
+    res |= check_zero_rows24(pf, MM_AUX_XOFS_X / 32, 3 * 2048) & chk;
     return res;
 }
 
@@ -388,6 +390,7 @@ int32_t mm_op_fast_mode1_check_zero(mmv_fast_matrix_type *pm, uint32_t check)
 
   This function is not portable between different implementations!
 */
+// %%EXPORT p
 uint64_t mm_op_fast_mode1_hash_coarse(mmv_fast_matrix_type *pm, uint32_t check)
 {
   /// @cond DO_NOT_DOCUMENT 

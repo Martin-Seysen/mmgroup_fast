@@ -13,6 +13,7 @@ import numpy as np
 from libc.string cimport memcpy 
 from mm_op_fast cimport mm_op_fast_init,  mm_op_fast_dealloc
 from mm_op_fast cimport mm_op_fast_normalize
+from mm_op_fast cimport mm_axis3_fast_mode1_set_vstd
 from mm_op_fast cimport mm_op_fast_to_mmv, mm_op_fast_from_mmv
 from mm_op_fast cimport mm_op_fast_word, mm_op_fast_raw_vb_data
 from mm_op_fast cimport mm_axis3_fast_load
@@ -37,6 +38,8 @@ from mm_op_fast cimport mm_op_fast_mode1_get
 from mm_op_fast cimport mm_op_fast_mode1_zero
 from mm_op_fast cimport mm_op_fast_mode1_poke
 from mm_op_fast cimport mm_axis3_fast_reduce_axes
+from mm_op_fast cimport mm_axis3_fast_reduce_G_x0
+from mm_op_fast cimport mm_axis3_fast_reduce_v_g
 from mm_op_fast cimport mm_op_fast_copy_data
 
 from mmgroup import MMVector
@@ -94,6 +97,11 @@ cdef class MMOpFastMatrix:
     def normalize(self, normalize_data = 0):
         cdef int32_t status = mm_op_fast_normalize(&self.m, normalize_data)
         assert status >= 0
+
+    def set_vstd(self, uint32_t hash = 0):
+        cdef int32_t status = mm_axis3_fast_mode1_set_vstd(&self.m, hash)
+        assert status == 0
+
               
     def set_row(self, uint32_t i, row):
         if i >= self.m.nrows:
@@ -207,6 +215,23 @@ cdef class MMOpFastMatrix:
         status = mm_axis3_fast_reduce_axes(&self.m, &r[0], 128)
         assert status >= 0, status
         return a[:status]    
+
+    def reduce_G_x0(self):
+        a = np.zeros(12, dtype = np.uint32)
+        cdef uint32_t[:] r = a
+        cdef int32_t status
+        status = mm_axis3_fast_reduce_G_x0(&self.m, &r[0])
+        assert status >= 0, status
+        return a[:status]    
+
+    def reduce_v_g(self, check=False):
+        a = np.zeros(80, dtype = np.uint32)
+        cdef uint32_t[:] r = a
+        cdef int32_t status
+        status = mm_axis3_fast_reduce_v_g(&self.m, &r[0], len(a), check);
+        assert status >= 0, status
+        return a[:status]    
+
 
     def dump(self):
         return MMOpFastMatrixDump(self)
