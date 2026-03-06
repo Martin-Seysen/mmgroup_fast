@@ -201,12 +201,15 @@ def test_reduce_mm(ncases = 1, processes = 16, verbose = 0):
             results = pool.starmap(reduce_mm,
                 enumerate(iter_test_elementes(ncases)))
 
+V3_0 = MMV3()
 
-
-def one_test_fast_reduce(g):
+def one_test_fast_reduce(g, check = 1):
     m = std_matrix()
     m.mul_exp(g)
-    c_result = m.reduce_v_g(check=1)
+    c_result = m.reduce_v_g(check)
+    if check == 2:
+        for i in[0, 1, 2]:
+            assert m.row_as_mmv(i) == V3_0
     h = g * MM('a', c_result)
     assert h == MM()
 

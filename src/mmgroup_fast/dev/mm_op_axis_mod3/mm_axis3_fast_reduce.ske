@@ -671,6 +671,9 @@ static inline int32_t subtract_vstd(mmv_fast_matrix_type *pm)
 
 
    Yet to be documented!!!
+   check = 0: don't check
+   check = 1: check an complain
+   check = 2: check and return nonzero value in pm in case of error
 
 */
 // %%EXPORT p
@@ -685,11 +688,11 @@ int32_t mm_axis3_fast_reduce_v_g(mmv_fast_matrix_type *pm, uint32_t *g, uint32_t
      len_g1 = res = mm_axis3_fast_reduce_G_x0(pm, g+len_g);
      if (res < 0) return res;
      if (check) {
-         mm_op_fast_word(pm, g + len_g, res, 1);
+         mm_op_fast_word(pm, g + len_g, len_g1 , 1);
          if ((res = subtract_vstd(pm)) < 0) return res;
          res = mm_op_fast_mode1_check_zero(pm, 7);
          if (res < 0) return res;
-         if (res) return -10000-(res & 7);
+         if ((check == 1) && res) return -10000-(res & 7);
      }
      len_g += len_g1;
      return len_g;

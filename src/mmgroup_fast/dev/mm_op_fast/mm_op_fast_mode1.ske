@@ -311,7 +311,7 @@ check_zero_rows%{SIZE}(mmv_fast_matrix_type *pm, uint32_t start, uint32_t n)
     mmv_fast_row32_type *p_row = pf->r32 + start;
   #ifdef GCC_VECTORS
     mmv_fast_row32_type acc;
-    memset(&acc, 0, sizeof(acc));
+    for (i = 0; i < 32; ++i) acc.b[i] = 0;
     for (i = 0; i < n; ++i) {
         acc.v8_32[0] |= p_row[i].v8_32[0] ^ (p_row[i].v8_32[0] >> 1);
     }
@@ -354,15 +354,19 @@ check_zero_rows%{SIZE}(mmv_fast_matrix_type *pm, uint32_t start, uint32_t n)
 // %%EXPORT p
 int32_t mm_op_fast_mode1_check_zero(mmv_fast_matrix_type *pm, uint32_t check)
 {
-    int32_t res = 0, chk = check & 0xf;
-    mmv_fast_type  *pf = ptr_data_mode1(pm);
-    if (pf == NULL) return -0x10;
+    int32_t res = 0, status, chk = check & 0xf;
     zero_diagBC(pm);
-    res |= check_zero_rows24(pf, 0, 72) & chk;
+    status = check_zero_rows24(pm, 0, 72);
+    if (status < 0) return status;
+    res |= status & check;
     if (res == chk) return res;
-    res |= check_zero_rows32(pf, MM_AUX_XOFS_T / 32, 2 * 759) & chk;
-    if (res == 0xf) return res;
-    res |= check_zero_rows24(pf, MM_AUX_XOFS_X / 32, 3 * 2048) & chk;
+    status = check_zero_rows32(pm, MM_AUX_OFS_T / 32, 2 * 759);
+    if (status < 0) return status;
+    res |= status & check;
+    if (res == chk) return res;
+    status = check_zero_rows24(pm, MM_AUX_OFS_X / 32, 3 * 2048);
+    if (status < 0) return status;
+    res |= status & check;
     return res;
 }
 
@@ -414,7 +418,7 @@ uint64_t mm_op_fast_mode1_hash_coarse(mmv_fast_matrix_type *pm, uint32_t check)
          i += ((i + 1) & 4) >> 2;
          hash(h, i);
      }
-     for (i = MM_AUX_XOFS_T/8 + 3; i < MM_AUX_XOFS_X/8; i += 0x394) {
+     for (i = MM_AUX_OFS_T/8 + 3; i < MM_AUX_OFS_X/8; i += 0x394) {
          hash(h, i);
      }
      #undef hash

@@ -18,8 +18,8 @@ a type-4 vector in the Leech lattice mod 2 from the axis that
 can be used to *reduce* the axis. Here an axis is reduced by
 transforming that type-4 vector to the standard type-4 vector
 with a transformation in the group \f$G_{x0}\f$. Afterwards a
-power of the triality element in \f$\M\f$ is (usually) applied
-for further reduction of the axis. For details we refer to
+power of the triality element in \f$\mathbb{M}\f$ is (usually)
+applied for further reduction of the axis. For details we refer to
 [Sey22]. However, our method of finding such a type-4 vector
 differs from the corresponding method in [Sey22], where the
 entry of an axis are assumed to be known modulo 15.   
