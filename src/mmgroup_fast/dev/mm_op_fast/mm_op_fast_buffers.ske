@@ -478,7 +478,7 @@ int32_t mm_op_fast_buffer_stat(int32_t *result, uint32_t length)
         } 
         result[3*i+2] = n_free;        
     }
-    return n;
+    return 3*n;
 }
 
 

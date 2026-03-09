@@ -575,6 +575,9 @@ cdef class FastBuffer:
         else:
             raise IndexError(FastBuffer_IND_ERR)
 
+    def __len__(self):
+        return self.bufsize
+
     @classmethod
     def gc(cls):
         """Global garbage collector"""
