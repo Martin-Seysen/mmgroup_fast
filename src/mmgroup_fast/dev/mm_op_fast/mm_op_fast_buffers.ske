@@ -1,0 +1,490 @@
+/** @file mm_op_fast_buffers.c
+
+ File ``mm_op_fast_buffers.c`` provides fast and thread-safe
+ allocation of buffers for the mmgroup_fast package.
+
+ All buffers provided by this module are 64-byte aligned.
+*/
+
+
+
+/// @cond DO_NOT_DOCUMENT 
+#define MM_OP_FAST_ALLOC
+
+#include <stdint.h>
+#include <stdatomic.h>
+#include <stddef.h>
+#include <stdlib.h>
+#ifdef MM_OP_FAST_BUFFERS_STANDALONE
+   #define MM_OP_FAST_API
+#else
+   #include "mm_op_fast.h"
+#endif
+/// @endcond 
+
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT 
+//  %%GEN c
+
+
+/****************************************************************
+** Data structures
+****************************************************************/
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+typedef struct Buffer {
+    struct Buffer *next;
+} Buffer;
+
+typedef struct BufferPool
+{
+    size_t block_size;
+    _Atomic(uintptr_t) freelist;
+    _Atomic(uint64_t) state;
+} BufferPool;
+
+
+#define FREE_SHIFT 48
+#define TOTAL_MASK ((1ULL<<48)-1)
+#define MAX_FREE 0xffff
+
+/// @endcond
+
+
+/****************************************************************
+** Tagged pointer helpers (ABA protection)
+****************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+// The free lists of 64-byte aligned pointers use ABA tags.
+// Bits                       Bits
+// 63......................6  5........0
+// pointer to Buffer          ABA tag
+
+
+#define TAG_MASK 0x3fULL
+#define PTR_MASK (~TAG_MASK)
+
+
+static inline Buffer *ptr_from_tag(uintptr_t v)
+{
+    return (Buffer*)(v & PTR_MASK);
+}
+
+static inline uintptr_t tag_from_val(uintptr_t v)
+{
+    return v & TAG_MASK;
+}
+
+static inline uintptr_t make_tagged(Buffer *p, uintptr_t tag)
+{
+    return ((uintptr_t)p) | (tag & TAG_MASK);
+}
+
+static inline uintptr_t inc_tag(uintptr_t v)
+{
+    return ((v + 1) & TAG_MASK);
+}
+
+/// @endcond
+
+
+
+
+/****************************************************************
+** OS and compiler-dependent stuff
+****************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+#if defined(_MSC_VER)
+
+/* ===================== MSVC ===================== */
+
+#include <malloc.h>
+#include <intrin.h>
+
+#define PREFETCH(p) _mm_prefetch((const char*)(p), _MM_HINT_T0)
+
+static void* aligned_malloc64(size_t size)
+{
+    return _aligned_malloc(size, 64);
+}
+
+static void aligned_free64(void *p)
+{
+    _aligned_free(p);
+}
+
+static inline void cpu_pause(void)
+{
+    _mm_pause();
+}
+
+static inline uint32_t bit_length_u32_nz(uint32_t x)
+/* works for x > 0 only */
+{
+    unsigned long idx;
+    _BitScanReverse(&idx, x);
+    return (uint32_t)(idx + 1);
+}
+
+#elif defined(_WIN32) && (defined(__GNUC__) || defined(__clang__))
+
+/* ========= GCC / CLANG on Windows (MinGW, clang-cl) ========= */
+
+#include <malloc.h>
+#include <immintrin.h>
+
+#define PREFETCH(p) __builtin_prefetch((p))
+
+static void* aligned_malloc64(size_t size)
+{
+    return _aligned_malloc(size, 64);
+}
+
+static void aligned_free64(void *p)
+{
+    _aligned_free(p);
+}
+
+static inline void cpu_pause(void)
+{
+    _mm_pause();
+}
+
+static inline uint32_t bit_length_u32_nz(uint32_t x)
+/* works for x > 0 only */
+{
+    return 32u - __builtin_clz(x);
+}
+
+#elif defined(__GNUC__) || defined(__clang__)
+
+/* ================= GCC / CLANG (POSIX) ================= */
+
+#include <stdlib.h>
+
+#define PREFETCH(p) __builtin_prefetch((p))
+
+static void* aligned_malloc64(size_t size)
+{
+    void *p = NULL;
+    if (posix_memalign(&p, 64, size) != 0)
+        return NULL;
+    return p;
+}
+
+static void aligned_free64(void *p)
+{
+    free(p);
+}
+
+static inline void cpu_pause(void)
+{
+#if defined(__i386__) || defined(__x86_64__)
+    __builtin_ia32_pause();
+#else
+    __asm__ __volatile__("" ::: "memory");
+#endif
+}
+
+static inline uint32_t bit_length_u32_nz(uint32_t x)
+/* works for x > 0 only */
+{
+    return 32u - __builtin_clz(x);
+}
+
+#else
+
+/* ================= GENERIC C11 ================= */
+
+#include <stdlib.h>
+#include <stdatomic.h>
+
+#define PREFETCH(p) ((void)0)
+
+static void* aligned_malloc64(size_t size)
+{
+    size_t aligned_size = (size + 63) & ~((size_t)63);
+    return aligned_alloc(64, aligned_size);
+}
+
+static void aligned_free64(void *p)
+{
+    free(p);
+}
+
+static inline void cpu_pause(void)
+{
+    atomic_signal_fence(memory_order_seq_cst);
+}
+
+
+static inline uint32_t bit_length_u32_nz(uint32_t x)
+/* works for x > 0 only */
+{
+    uint32_t n = 0;
+    if (x >= (1u << 16)) { x >>= 16; n += 16; }
+    if (x >= (1u << 8))  { x >>= 8;  n += 8; }
+    if (x >= (1u << 4))  { x >>= 4;  n += 4; }
+    if (x >= (1u << 2))  { x >>= 2;  n += 2; }
+    if (x >= (1u << 1))  {           n += 1; }
+    return n + 1;
+}
+
+#endif
+
+/// @endcond 
+
+
+/****************************************************************
+** Fixed buffer pools
+****************************************************************/
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+BufferPool buffers[] = {
+    {0x8000, (uintptr_t)NULL, 0ULL},
+    {0x10000, (uintptr_t)NULL, 0ULL},
+    {0x20000, (uintptr_t)NULL, 0ULL},
+    {0x40000, (uintptr_t)NULL, 0ULL},
+    {0x80000, (uintptr_t)NULL, 0ULL},
+    {0x100000, (uintptr_t)NULL, 0ULL},
+};
+
+static inline BufferPool* get_pool(uint32_t buffer_size)
+{
+    if (buffer_size > 0x100000) return NULL;
+    if (buffer_size <= 0x8000) return &buffers[0];
+    return &buffers[bit_length_u32_nz(buffer_size - 1) - 15];
+}
+
+
+/// @endcond
+
+
+
+/****************************************************************
+** Alloc
+****************************************************************/
+
+/**
+   @brief Fast memmory allocation
+
+   Returns pointer to a buffer of (at least) ``buffer_size`` bytes
+   length, or NULL in case of failure. A buffer returned by this
+   function is 64-byte aligned. Function ``mm_op_fast_buffer_free``
+   must be used to free that pointer.
+*/
+// %%EXPORT p
+void* mm_op_fast_buffer_alloc(uint32_t buffer_size)
+{
+    BufferPool *p = get_pool(buffer_size);
+    if (p == NULL) return aligned_malloc64(buffer_size);
+    uintptr_t head_val;
+    uintptr_t new_val;
+    Buffer *head;
+    Buffer *next;
+    int spins = 0;
+
+
+    for(;;)
+    {
+        head_val = atomic_load(&p->freelist);
+        head = ptr_from_tag(head_val);
+
+        if (!head) {
+            void *mem = aligned_malloc64(p->block_size);
+            if (mem != NULL) atomic_fetch_add(&p->state,1);
+            return mem;
+        }
+
+        next = head->next;
+        PREFETCH(next);
+
+        new_val = make_tagged(next, inc_tag(tag_from_val(head_val)));
+
+        if(atomic_compare_exchange_weak(&p->freelist,&head_val,new_val))
+        {
+            atomic_fetch_sub(&p->state,(uint64_t)1<<FREE_SHIFT);
+            return head;
+        }
+
+        if (++spins > 8) cpu_pause();
+    }
+}
+
+
+/****************************************************************
+** Internal garbage collector
+****************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+static inline void buffer_gc(BufferPool *p, uint32_t n_free)
+{
+    while(n_free--)  {
+
+        uintptr_t head_val;
+        uintptr_t new_val;
+        Buffer *head;
+        Buffer *next;
+        int spins = 0;
+
+        for(;;)  {
+            head_val = atomic_load(&p->freelist);
+            head = ptr_from_tag(head_val);
+
+            if(!head) return;
+            next = head->next;
+            new_val = make_tagged(next, inc_tag(tag_from_val(head_val)));
+            if(atomic_compare_exchange_weak(&p->freelist,&head_val,new_val))
+                break;
+
+            if (++spins > 8) cpu_pause();
+        }
+
+        aligned_free64(head);
+        atomic_fetch_sub(&p->state,((uint64_t)1<<FREE_SHIFT)+1);
+    }
+}
+
+
+/// @endcond
+
+
+
+/****************************************************************
+** Free
+****************************************************************/
+
+/**
+   @brief Free buffer allocated by ``mm_op_fast_buffer_alloc``
+
+   Here parameter ``ptr`` must be a pointer that has been returned
+   by function ``mm_op_fast_buffer_alloc``; and ``buffer_size``
+   must be the value that has been passed to that function when
+   allocating the buffer referred by ``ptr``.
+*/
+// %%EXPORT p
+void mm_op_fast_buffer_free(void *ptr, uint32_t buffer_size)
+{
+    if (ptr == NULL) return;
+    BufferPool *p = get_pool(buffer_size);
+    if (p == NULL) {
+        aligned_free64(ptr);
+        return;
+    }
+    Buffer *node = ptr;
+    uintptr_t head_val;
+    uintptr_t new_val;
+    Buffer *head;
+    uint64_t s;
+    int spins = 0;
+
+
+    for(;;) {
+
+        s = atomic_load(&p->state);
+        uint64_t n_free = s >> FREE_SHIFT;
+        uint64_t n_total = s & TOTAL_MASK;
+
+        if (n_free == MAX_FREE) {
+            aligned_free64(ptr);
+            atomic_fetch_sub(&p->state, 1);
+            buffer_gc(p, 1024);
+            return;
+        }
+        else if ((n_free + n_free) > n_total && n_free > 8) {
+            uint64_t n_gc = n_free > 16 ? n_free >> 1 : n_free - 8;
+            buffer_gc(p, n_gc);
+        }
+
+        head_val = atomic_load(&p->freelist);
+        head = ptr_from_tag(head_val);
+
+        node->next = head;
+
+        new_val = make_tagged(node, inc_tag(tag_from_val(head_val)));
+
+        if (atomic_compare_exchange_weak(&p->freelist,&head_val,new_val)) {
+            atomic_fetch_add(&p->state, 1ULL<<FREE_SHIFT);
+            break;
+        }
+
+        if (++spins > 8) cpu_pause();
+    }
+}
+
+/****************************************************************
+** Global garbage collection
+****************************************************************/
+
+
+
+
+/**
+   @brief Optional garbage collector for this memory manager
+
+   This module also contains fast internal garbage collection.
+   So this function is only present to ensure that all garbage
+   can be collected e.g. in a finalization procedure.
+*/
+// %%EXPORT p
+void mm_op_fast_buffer_gc(void)
+{
+    uint32_t i;
+    for (i = 0; i < sizeof(buffers) / sizeof(BufferPool); ++i) {
+        buffer_gc(&buffers[i], MAX_FREE+1);
+    }
+}
+
+
+/****************************************************************
+** Allocator statistics
+****************************************************************/
+
+/**
+   @brief Optional garbage collector for this memory manager
+
+   This module also contains fast internal garbage collection.
+   So this function is only present to ensure that all garbage
+   can be collected e.g. in a finalization procedure.
+*/
+// %%EXPORT p
+int32_t mm_op_fast_buffer_stat(int32_t *result, uint32_t length)
+{
+    uint32_t i, n = sizeof(buffers) / sizeof(BufferPool);
+    if (length < 3*n) return 0;
+    for (i = 0; i < n; ++i) {
+        BufferPool *p  =  &buffers[i];
+        result[3*i] = p->block_size;
+        uint64_t st = atomic_load(&p->state);
+        uint64_t n_free = st >> FREE_SHIFT;
+        uint64_t n_total = st & TOTAL_MASK; 
+        if (n_total < n_free) result[3*i+1] = -1;
+        else {
+            uint64_t n_alloc = n_total - n_free;
+            if (n_alloc > 0x7fffffffUL) n_alloc = 0x7fffffffUL;
+            result[3*i+1] = n_alloc;
+        } 
+        result[3*i+2] = n_free;        
+    }
+    return n;
+}
+
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

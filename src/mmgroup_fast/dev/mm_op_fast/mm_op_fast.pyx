@@ -41,6 +41,10 @@ from mm_op_fast cimport mm_axis3_fast_reduce_axes
 from mm_op_fast cimport mm_axis3_fast_reduce_G_x0
 from mm_op_fast cimport mm_axis3_fast_reduce_v_g
 from mm_op_fast cimport mm_op_fast_copy_data
+from mm_op_fast cimport mm_op_fast_buffer_alloc
+from mm_op_fast cimport mm_op_fast_buffer_free
+from mm_op_fast cimport mm_op_fast_buffer_gc
+from mm_op_fast cimport mm_op_fast_buffer_stat
 
 from mmgroup import MMVector
 
@@ -539,3 +543,56 @@ cdef class MMOpFastAmod3:
         assert status >= 0, status
         return self
        
+
+FastBuffer_IND_ERR = "Index out of range in class FastBuffer"
+
+cdef class FastBuffer:
+    cdef uint8_t *ptr
+    cdef uint32_t bufsize
+    def __cinit__(self, uint32_t bufsize, *args, **kwds):
+        self.bufsize = bufsize
+        self.ptr = <uint8_t *>mm_op_fast_buffer_alloc(bufsize)
+        if self.ptr == NULL:
+            self.bufsize = 0
+            raise MemoryError("Out of memory for class FastBuffer")
+
+    def  __dealloc__(self):
+        mm_op_fast_buffer_free(self.ptr, self.bufsize)
+        self.ptr = NULL
+        self.bufsize = 0
+
+    def __init__(self, uint32_t index):
+        pass
+
+    def __getitem__(self, uint32_t index):
+        if index < self.bufsize:
+            return self.ptr[index]
+        raise IndexError(FastBuffer_IND_ERR)
+
+    def __setitem__(self, uint32_t index, uint32_t value):
+        if index < self.bufsize:
+            self.ptr[index] = <uint8_t>(value & 0xff)
+        else:
+            raise IndexError(FastBuffer_IND_ERR)
+
+    @classmethod
+    def gc(cls):
+        """Global garbage collector"""
+        mm_op_fast_buffer_gc()
+
+    @classmethod
+    def statistics(cls):
+        """Display statistics"""
+        a = np.zeros(48, dtype = np.int32)
+        cdef int32_t[:] pa = a
+        cdef int32_t n3 = mm_op_fast_buffer_stat(&pa[0], 48), i, found = 0
+        assert n3 > 0
+        a = a[:n3].reshape((n3//3, 3))
+        print("Buffers managed by mmgroup_fast allocator")
+        print("   Size     allocated    free")
+        for i in range(n3//3):
+            if (a[i,1:] != 0).any():
+                print("%7d %13d %7d" % (tuple(a[i])))
+                found = 1
+        if not found:
+            print("   <No buffers present>")

@@ -10,5 +10,6 @@ if os.name == 'nt':
 try:
     from mmgroup_fast.mm_op_fast import MMOpFastMatrix
     from mmgroup_fast.mm_op_fast import MMOpFastAmod3
+    from mmgroup_fast.mm_op_fast import FastBuffer
 except:
     pass
