@@ -21,6 +21,8 @@
 // aligned memory has to be allocated.
 
 static inline void *_my_aligned_alloc(size_t size, size_t alignment) {
+    // This function is deprecated!
+    // Use the functions in file ``mm_op_fast_buffers`` instead!
     // Allocate enough for data + alignment slack + space to store original pointer
     void *raw = malloc(size + alignment - 1 + sizeof(void*));
     if (!raw) return NULL;
@@ -36,6 +38,8 @@ static inline void *_my_aligned_alloc(size_t size, size_t alignment) {
 }
 
 static inline void _my_aligned_free(void *ptr) {
+    // This function is deprecated!
+    // Use the functions in file ``mm_op_fast_buffers`` instead!
     if (ptr) {
         free(((void**)ptr)[-1]);
     }

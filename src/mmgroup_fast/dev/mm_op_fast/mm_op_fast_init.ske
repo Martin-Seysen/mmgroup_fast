@@ -34,12 +34,12 @@ int32_t mm_op_fast_init(mmv_fast_matrix_type *pm, uint32_t p, uint32_t nrows, ui
              return 0;
          case 1:
              {
-                 mmv_fast_type **p_buf = pm->p_v.p_vb;
+                 mmv_fast_type **p_buf = pm->p_v.p_vb, *ptr;
                  if (p != 3 ||  nrows > 4) return -1;
-                 p_buf[0] = (mmv_fast_type*)mm_op_fast_buffer_alloc(
+                 p_buf[0] = ptr = (mmv_fast_type*)mm_op_fast_buffer_alloc(
                      sizeof(mmv_fast_type));
-                 if (p_buf[0] == NULL) return -1;
-                 memset(p_buf[0], 0, sizeof(mmv_fast_type));
+                 ASSUME_ALIGNED(ptr, 64);
+                 memset(ptr, 0, sizeof(mmv_fast_type));
                  p_buf[1] = NULL;
                  pm->mode = 1;
                  pm->p = p;
@@ -155,8 +155,10 @@ int32_t mm_op_fast_copy_data(mmv_fast_matrix_type *pm_src, mmv_fast_matrix_type 
                  pm_dest->nrows = pm_src->nrows;
                  mmv_fast_type **psrc_buf = pm_src->p_v.p_vb;
                  mmv_fast_type *psrc = psrc_buf[pm_src->current & 1];
+                 ASSUME_ALIGNED(psrc, 64);
                  mmv_fast_type **pdest_buf = pm_dest->p_v.p_vb;
-                 mmv_fast_type *pdest = psrc_buf[pm_dest->current & 1];
+                 mmv_fast_type *pdest = pdest_buf[pm_dest->current & 1];
+                 ASSUME_ALIGNED(pdest, 64);
                  memcpy(pdest, psrc, sizeof(mmv_fast_type));
              }
          default:
