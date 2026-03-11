@@ -302,6 +302,7 @@ GENERATE_START = '''
  --out-dir {C_DIR}
  --out-pxd-dir {PXD_DIR}
  --library-path  {PACKAGE_DIR} {MMGROUP_DIR}
+ --copy mm_thread.h
 '''.format(**DIR_DICT)
 
 MMGROUP_LIBS = ['mmgroup_mat24', 'mmgroup_mm_op', 'mmgroup_mm_reduce']

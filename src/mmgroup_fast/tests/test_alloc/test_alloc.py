@@ -2,8 +2,9 @@ import os
 from time import time
 from random import randint, shuffle
 import pytest
-from mmgroup_fast import FastBuffer
 import numpy as np
+
+from mmgroup_fast import FastBuffer
 
 @pytest.mark.mm_op
 def test_fast_buffer1(verbose = 0):
@@ -104,8 +105,10 @@ def do_test_fast_buffer_threads(max_threads, nbuffers, nsteps, verbose = 1):
     to 65536 bytes.
 
     We expect an actual parallel execution of these threads
-    in Python >= 3.14 only.
+    in Python >= 3.14 only, when the GIL is explicitly unlocked.
     """
+    btest = FastBuffer(1)
+    btest.start_test()
     nthreads = max(2, min(2 * os.cpu_count() // 3 + 1, max_threads))
     if verbose:
         print("\nTest allocator. Number of threads: %d" % nthreads)
@@ -136,10 +139,12 @@ def do_test_fast_buffer_threads(max_threads, nbuffers, nsteps, verbose = 1):
     FastBuffer.gc()
     if verbose:
         FastBuffer.statistics()
+    btest.stop_test()
 
 
 
-def test_fast_buffer_threads(verbose = 0):
+@pytest.mark.mm_op
+def test_fast_buffer_parallel(verbose = 0):
     do_test_fast_buffer_threads(4, 100, 50, verbose)
 
 

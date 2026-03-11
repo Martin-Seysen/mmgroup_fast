@@ -482,6 +482,98 @@ int32_t mm_op_fast_buffer_stat(int32_t *result, uint32_t length)
 }
 
 
+/****************************************************************
+** Test
+****************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+#include "mm_thread.h"
+
+#define ITERATIONS 1000
+#define BUFSIZE 8000
+#define NTHREADS 4
+
+#define MAGIC 0x728972331e26d963ULL
+
+typedef struct alloc_test_type_s {
+    mm_thread_t t[NTHREADS];
+    _Atomic(uint64_t) state;
+    _Atomic(uint64_t) magic;
+} alloc_test_type;
+
+int worker_thread(void *ptr)
+{
+    _Atomic(uint64_t) *state = ptr;
+    for (;;) {
+        for (int i=0;i<ITERATIONS;i++) {
+            unsigned char *b = mm_op_fast_buffer_alloc(BUFSIZE);
+
+            if (!b)  {
+                atomic_fetch_add(&state, 1);
+                return 0;
+            };
+            b[0] = 1;
+            b[BUFSIZE-1] = 2;
+            mm_op_fast_buffer_free(b, BUFSIZE);
+            if (atomic_load(&state)) return 0;
+        }
+    }
+    return 0;
+}
+
+
+/**
+   @brief Start a simple test of the memory manager
+
+   Start testing and return a pointer to an opaque buffer containing
+   information about the threads performing the test. Use
+   function ``mm_op_fast_buffer_test_stop`` to stop the test.
+*/
+// %%EXPORT p
+void *mm_op_fast_buffer_test_start(void)
+{
+    alloc_test_type *pt = malloc(sizeof(alloc_test_type));
+    if (pt == NULL) return 0;
+    atomic_store(&pt->state, 0);
+
+    for (int i = 0; i < NTHREADS; ++i) {
+        mm_thread_create(&(pt->t[i]), &worker_thread, &(pt->state));
+    }
+    atomic_store(&pt->magic, MAGIC);
+    return (void*) pt;
+}
+
+
+/**
+   @brief Stop the simple test of the memory manager
+
+   Here parameter ``ptr`` must be a pointer returned by
+   function ``mm_op_fast_buffer_test_start``. Return values are:
+
+   0 = no error detected, 1 = one or more threads failed,
+   2 = buffer referred by ``ptr`` corrupted.
+*/
+// %%EXPORT p
+int32_t mm_op_fast_buffer_test_stop(void *ptr)
+{
+    if (ptr == 0) return 0;
+    alloc_test_type *pt = ptr;
+    if (atomic_load(&pt->magic) != MAGIC) return -2;
+    atomic_store(&pt->magic, 0);
+    atomic_fetch_add(&pt->state, 0x100000000ULL);
+    for (int i = 0; i < NTHREADS; ++i) {
+        mm_thread_join(&(pt->t[i]), NULL);
+    }
+    uint64_t res = atomic_load(&pt->state);
+    return res & 0xffffffffULL ? -1 : 0;
+}
+
+
+/// @endcond
+
+
 
 
 //  %%GEN h

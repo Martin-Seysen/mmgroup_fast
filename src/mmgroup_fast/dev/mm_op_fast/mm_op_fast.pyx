@@ -45,6 +45,8 @@ from mm_op_fast cimport mm_op_fast_buffer_alloc
 from mm_op_fast cimport mm_op_fast_buffer_free
 from mm_op_fast cimport mm_op_fast_buffer_gc
 from mm_op_fast cimport mm_op_fast_buffer_stat
+from mm_op_fast cimport mm_op_fast_buffer_test_start
+from mm_op_fast cimport mm_op_fast_buffer_test_stop
 
 from mmgroup import MMVector
 
@@ -549,8 +551,10 @@ FastBuffer_IND_ERR = "Index out of range in class FastBuffer"
 cdef class FastBuffer:
     cdef uint8_t *ptr
     cdef uint32_t bufsize
+    cdef void * p_test
     def __cinit__(self, uint32_t bufsize, *args, **kwds):
         self.bufsize = bufsize
+        self.p_test = NULL
         self.ptr = <uint8_t *>mm_op_fast_buffer_alloc(bufsize)
         if self.ptr == NULL:
             self.bufsize = 0
@@ -560,6 +564,8 @@ cdef class FastBuffer:
         mm_op_fast_buffer_free(self.ptr, self.bufsize)
         self.ptr = NULL
         self.bufsize = 0
+        mm_op_fast_buffer_test_stop(self.p_test)
+        self.p_test = NULL
 
     def __init__(self, uint32_t index):
         pass
@@ -577,6 +583,26 @@ cdef class FastBuffer:
 
     def __len__(self):
         return self.bufsize
+
+    def start_test(self):
+        """Start a simple allocator test
+
+        This test starts 4 threads in C that cause traffic at the
+        allocator by contiuously allocating and dallocating buffers.
+        Note that Python usually does not support real mulltithreading,
+        so that we have do do it this way. Use method ``stop_test``
+        to stop the traffic!
+        """
+        if self.p_test == NULL:
+            self.p_test = mm_op_fast_buffer_test_start()
+            if self.p_test == NULL:
+                ERR = "Could not start allocator test with threads"
+                raise ValueError(ERR)
+
+    def stop_test(self):
+        err = mm_op_fast_buffer_test_stop(self.p_test)
+        self.p_test = NULL
+        assert err == 0, hex(err)
 
     @classmethod
     def gc(cls):
@@ -599,3 +625,4 @@ cdef class FastBuffer:
                 found = 1
         if not found:
             print("   <No buffers present>")
+
