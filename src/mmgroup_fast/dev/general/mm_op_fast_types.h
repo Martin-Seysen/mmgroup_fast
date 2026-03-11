@@ -272,6 +272,7 @@ typedef struct {
     uint32_t mode;
     uint32_t check_underflow;
     uint32_t current;
+    uint32_t work_refcount;
 } mmv_fast_matrix_type;
 
 

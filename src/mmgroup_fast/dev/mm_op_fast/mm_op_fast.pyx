@@ -12,7 +12,6 @@ from collections.abc import Iterable
 import numpy as np
 from libc.string cimport memcpy 
 from mm_op_fast cimport mm_op_fast_init,  mm_op_fast_dealloc
-from mm_op_fast cimport mm_op_fast_normalize
 from mm_op_fast cimport mm_axis3_fast_mode1_set_vstd
 from mm_op_fast cimport mm_op_fast_to_mmv, mm_op_fast_from_mmv
 from mm_op_fast cimport mm_op_fast_word, mm_op_fast_raw_vb_data
@@ -82,13 +81,11 @@ cdef class MMOpFastMatrix:
         mm_op_fast_init(&self.m, 0, 0, 0)
 
     def  __dealloc__(self):
-        mm_op_fast_dealloc(&self.m, 0)
+        mm_op_fast_dealloc(&self.m)
 
-    def __init__(self, uint32_t p, uint32_t nrows, uint32_t mode = 0):
+    def __init__(self, uint32_t p, uint32_t nrows, uint32_t mode = 1):
         if not p in MAX_NROWS:
             raise ValueError("Bad modulus %s for class MMOpFastArray" % p) 
-        if mode == 0:
-            mode = 1 if  nrows <= MAX_NROWS[p] else 2
         if mm_op_fast_init(&self.m, p, nrows, mode) != 0:
              raise ValueError("Too many rows or bad modulus for class MMOpFastArray") 
 
@@ -99,10 +96,6 @@ cdef class MMOpFastMatrix:
         cdef int32_t status = mm_op_fast_copy_data(&self.m, pc)
         assert status >= 0
         return cp
-
-    def normalize(self, normalize_data = 0):
-        cdef int32_t status = mm_op_fast_normalize(&self.m, normalize_data)
-        assert status >= 0
 
     def set_vstd(self, uint32_t hash = 0):
         cdef int32_t status = mm_axis3_fast_mode1_set_vstd(&self.m, hash)

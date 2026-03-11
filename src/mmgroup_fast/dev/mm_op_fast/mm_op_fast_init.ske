@@ -36,14 +36,16 @@ int32_t mm_op_fast_init(mmv_fast_matrix_type *pm, uint32_t p, uint32_t nrows, ui
              {
                  mmv_fast_type **p_buf = pm->p_v.p_vb;
                  if (p != 3 ||  nrows > 4) return -1;
-                 p_buf[0] = (mmv_fast_type*)_my_aligned_alloc(
-                     sizeof(mmv_fast_type), 64);
+                 p_buf[0] = (mmv_fast_type*)mm_op_fast_buffer_alloc(
+                     sizeof(mmv_fast_type));
                  if (p_buf[0] == NULL) return -1;
                  memset(p_buf[0], 0, sizeof(mmv_fast_type));
                  p_buf[1] = NULL;
                  pm->mode = 1;
                  pm->p = p;
                  pm->nrows = nrows;
+                 pm->current = 0;
+                 pm->work_refcount = 0;
                  return 0;
              }
          default:
@@ -51,91 +53,85 @@ int32_t mm_op_fast_init(mmv_fast_matrix_type *pm, uint32_t p, uint32_t nrows, ui
      }
 }
 
+/**
+   @brief Yet to be documented!
+*/
+// %%EXPORT p
+void mm_op_fast_dealloc(mmv_fast_matrix_type *pm)
+{
+     switch (pm->mode) {
+         case 1:
+             {
+                 mmv_fast_type **p_buf = pm->p_v.p_vb;
+                 if (p_buf[1] != NULL) {
+                     mm_op_fast_buffer_free(p_buf[1], sizeof(mmv_fast_type));
+                 }
+                 if (p_buf[0] != NULL) {
+                     mm_op_fast_buffer_free(p_buf[0], sizeof(mmv_fast_type));
+                 }
+             }
+             break;
+         default:
+             break;
+     }
+     memset(pm, 0, sizeof(mmv_fast_matrix_type));
+}
+
+
+
+
+
 
 
 /**
    @brief Yet to be documented!
 */
 // %%EXPORT p
-int32_t mm_op_fast_alloc(mmv_fast_matrix_type *pm, uint32_t alloc_work)
+int32_t mm_op_fast_alloc_work(mmv_fast_matrix_type *pm)
 {
-     //int32_t status;
-     
      switch (pm->mode) {
          case 1:
              {
+                 if ((++pm->work_refcount) > 1) return 0;
                  mmv_fast_type **p_buf = pm->p_v.p_vb;
-                 if (p_buf[0] == NULL) {
-                     p_buf[0] = (mmv_fast_type*)_my_aligned_alloc(
-                         sizeof(mmv_fast_type), 64);
-                     if (p_buf[0] == NULL) return -1;
-                     memset(p_buf[0], 0, sizeof(mmv_fast_type));
-                 }
-                 if (p_buf[1] == NULL && alloc_work) {
-                     p_buf[1] = (mmv_fast_type*)_my_aligned_alloc(
-                         sizeof(mmv_fast_type), 64);
+                 if (p_buf[1] == NULL) {
+                     p_buf[1] = (mmv_fast_type*)mm_op_fast_buffer_alloc(
+                         sizeof(mmv_fast_type));
                      if (p_buf[1] == NULL) return -1;
                      memset(p_buf[1], 0, sizeof(mmv_fast_type));
                  }
                  return 0;
              }
          default:
-             return -1;
+             return 0;
      }
 }
+
 
 
 /**
    @brief Yet to be documented!
 */
 // %%EXPORT p
-int32_t mm_op_fast_normalize(mmv_fast_matrix_type *pm, uint32_t normalize_data)
+int32_t mm_op_fast_dealloc_work(mmv_fast_matrix_type *pm)
 {
-     if (pm->current & 1) switch (pm->mode) {
-         case 1:
-             {
-                 mmv_fast_type **p_buf = pm->p_v.p_vb;
-                 memcpy(p_buf[0], p_buf[1], sizeof(mmv_fast_type));
-             }
-             break;
-         default:
-             return -1;
-     }
-     pm->current = 0;
-
-     if (normalize_data) {
-         return -1;
-     } 
-     return 0;
-}
-
-
-/**
-   @brief Yet to be documented!
-*/
-// %%EXPORT p
-int32_t mm_op_fast_dealloc(mmv_fast_matrix_type *pm, uint32_t work_only)
-{
-     // int32_t status;
-     
-     if (work_only && mm_op_fast_normalize(pm, 0)) return -1;
      switch (pm->mode) {
          case 1:
              {
+                 if ((--pm->work_refcount) > 0) return 0;
                  mmv_fast_type **p_buf = pm->p_v.p_vb;
+                 if (pm->current & 1) {
+                      mmv_fast_type *tmp = p_buf[1];
+                      p_buf[1] = p_buf[0]; p_buf[0] = tmp;
+                 }
+                 pm->current = 0;
                  if (p_buf[1] != NULL) {
-                     _my_aligned_free(p_buf[1]);
+                     mm_op_fast_buffer_free(p_buf[1], sizeof(mmv_fast_type));
                      p_buf[1] = NULL;
                  }
-                 if (p_buf[0] == NULL && !work_only) {
-                     _my_aligned_free(p_buf[0]);
-                     p_buf[0] = NULL;
-                 }
-                 return 0;
              }
-             break;
          default:
-             return -1;
+             return 0;
      }
 }
 
@@ -157,24 +153,11 @@ int32_t mm_op_fast_copy_data(mmv_fast_matrix_type *pm_src, mmv_fast_matrix_type 
          case 1:
              {
                  pm_dest->nrows = pm_src->nrows;
-                 pm_dest->current = 0;
                  mmv_fast_type **psrc_buf = pm_src->p_v.p_vb;
                  mmv_fast_type *psrc = psrc_buf[pm_src->current & 1];
                  mmv_fast_type **pdest_buf = pm_dest->p_v.p_vb;
-                 mmv_fast_type *pdest = pdest_buf[0];
-                 if (psrc == NULL) {
-                     if (pdest != NULL) 
-                         memset(pdest, 0, sizeof(mmv_fast_type));
-                 } else {
-                     if (pdest == NULL) {
-                         int32_t status = mm_op_fast_alloc(pm_dest, 0);
-                         if (status < 0) return status;
-                         pdest = pdest_buf[0];
-                         if (pdest == NULL) return -1;
-                     } 
-                     memcpy(pdest, psrc, sizeof(mmv_fast_type));
-                 }
-                 return 0;
+                 mmv_fast_type *pdest = psrc_buf[pm_dest->current & 1];
+                 memcpy(pdest, psrc, sizeof(mmv_fast_type));
              }
          default:
              return -1;
@@ -191,14 +174,14 @@ uint8_t* mm_op_fast_raw_vb_data(mmv_fast_matrix_type *pm, uint32_t *p_len)
 {
      uint32_t len = 0;
      uint8_t *p_data = NULL;
-     if (mm_op_fast_normalize(pm, 0) == 0)  switch (pm->mode) {
+     switch (pm->mode) {
          case 1:
              {
                  mmv_fast_type **p_buf = pm->p_v.p_vb;
+                 p_data = (uint8_t*)(p_buf[pm->current & 1]);
                  len = sizeof(mmv_fast_type);
-                 p_data = (uint8_t*)(p_buf[0]);
+                 break;
              }
-             break;
         default:
              break;
       }

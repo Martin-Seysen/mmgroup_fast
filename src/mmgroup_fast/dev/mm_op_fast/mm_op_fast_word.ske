@@ -20,27 +20,32 @@ int32_t mm_op_fast_word(mmv_fast_matrix_type *pm, uint32_t *g, int32_t len_g, in
      int32_t status;
      mm_group_iter_t s_it;
 
-     if (mm_op_fast_alloc(pm, 1)) return -1;
+     if (mm_op_fast_alloc_work(pm)) return -1;
      mm_group_iter_start(&s_it, g, len_g, e);
      do {
          status = mm_group_iter_next(&s_it);
          if (h[0]) {
-             if (mm_op_fast_op_xi(pm, h[0]) < 0) return -1;
+             if (mm_op_fast_op_xi(pm, h[0]) < 0) goto failure;
          }
          if (h[1]) {
-             if (mm_op_fast_op_t(pm, h[1]) < 0) return -1;
+             if (mm_op_fast_op_t(pm, h[1]) < 0) goto failure;
          }
          if (h[2] | h[3] | (h[4] && !h[5]) ) {
-             if (mm_op_fast_op_xy(pm, h[2], h[3], h[4]) < 0) return -1;
+             if (mm_op_fast_op_xy(pm, h[2], h[3], h[4]) < 0) goto failure;
              h[4] = 0;
          }
          if (h[4] | h[5]) {
-             if (mm_op_fast_op_pi(pm, h[4], h[5]) < 0) return -1;
+             if (mm_op_fast_op_pi(pm, h[4], h[5]) < 0) goto failure;
          }
      } while (status == 0);
      
-     // if (p0 != v) mm_op__copy(work, v);
+     mm_op_fast_dealloc_work(pm);
      return status - 1;
+
+failure:
+     mm_op_fast_dealloc_work(pm);
+     return -1;
+
 }
 
 

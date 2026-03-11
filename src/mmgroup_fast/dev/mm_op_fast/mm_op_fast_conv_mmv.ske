@@ -103,11 +103,11 @@ int32_t mm_op_fast_mma3_from_mmv(mmv_fast_type *a, uint32_t index, uint_mmv_t *v
 // %%EXPORT p
 int32_t mm_op_fast_to_mmv(mmv_fast_matrix_type *pm,  uint32_t index, uint_mmv_t *v, uint32_t len_v)
 {
-    if (mm_op_fast_normalize(pm, 0) < 0) return -1;
     switch (pm->mode) {
         case 1:
             {
-                mmv_fast_type *pmdata = pm->p_v.p_vb[0]; 
+                mmv_fast_type **p_buf = pm->p_v.p_vb;
+                mmv_fast_type *pmdata = p_buf[pm->current & 1];
                 uint32_t len_mmv = mm_aux_mmv_size(pm->p);
                 if (len_mmv == 0 || len_mmv > len_v) return -1;
                 if (pm->p == 3) {
@@ -124,13 +124,11 @@ int32_t mm_op_fast_to_mmv(mmv_fast_matrix_type *pm,  uint32_t index, uint_mmv_t 
 // %%EXPORT p
 int32_t mm_op_fast_from_mmv(mmv_fast_matrix_type *pm,  uint32_t index, uint_mmv_t *v)
 {
-    if (mm_op_fast_normalize(pm, 0) < 0) return -1;
     switch (pm->mode) {
         case 1:
             {
-                mmv_fast_type *pmdata = pm->p_v.p_vb[0]; 
-                uint32_t len_mmv = mm_aux_mmv_size(pm->p);
-                if (len_mmv == 0) return -1;
+                mmv_fast_type **p_buf = pm->p_v.p_vb;
+                mmv_fast_type *pmdata = p_buf[pm->current & 1];
                 if (pm->p == 3) {
                     return  mm_op_fast_mma3_from_mmv(pmdata, index, v);
                 }
