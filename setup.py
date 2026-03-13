@@ -475,6 +475,7 @@ MM_OP_FAST_GENERATE = GENERATE_START + '''
            mmgroup_fast.dev.mm_op_axis_mod3.Case4C
            mmgroup_fast.dev.mm_op_axis_mod3.Case12C4B
            mmgroup_fast.dev.mm_op_axis_mod3.Case6C
+           mmgroup_fast.dev.mm_op_axis_mod3.start_vector_lfsr
  --sources mm_op_fast.h
  --sources
 '''.format(**DIR_DICT) + MM_OP_FAST_SOURCES + '''
