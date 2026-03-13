@@ -590,6 +590,64 @@ int32_t mm_axis3_fast_reduce_G_x0(mmv_fast_matrix_type *pm, uint32_t *g)
 }
 
 
+/**********************************************************************
+* Store random data in the free row of the standard axis for hashing
+**********************************************************************/
+/// @cond DO_NOT_DOCUMENT
+
+mmv_fast_row32_type START_LFSR[6] = {
+    // %%TABLE MM_AXIS3_START_VECTOR_LFSR.reshape((6,1,32))
+};
+
+
+
+static inline void set_hash_vstd(mmv_fast_matrix_type *pm)
+{
+     if (pm == NULL || pm->mode != 1 || pm->p != 3) return;
+     mmv_fast_type **p_buf = pm->p_v.p_vb;
+     mmv_fast_type *p_fast = p_buf[pm->current & 1];
+     mmv_fast_row32_type *pr32 = &(p_fast->r32[0]);
+     uint32_t i, j;
+     pr32 += MM_AUX_OFS_T / 32;
+     for (i = 0; i < 6; ++i) {
+         for (j = 0; j < 4; ++j) {
+         #ifdef GCC_VECTORS
+            pr32[4 * i + j].v32[0]
+               = (START_LFSR[i].v32[0] << (2 * j)) & 0xc0;
+         #else
+            // %%FOR* k in range(4)
+            pr32[4 * i + j].u64[%{k}] =
+                (START_LFSR[i].u64[%{k}] << (2 * j)) & 0xc0c0c0c0c0c0c0c0ULL;
+            // %%END FOR
+         #endif
+         }
+     }
+     for (i = 24; i < 759*2; ++i) {
+         #ifdef GCC_VECTORS
+            pr32[i].v32[0] = pr32[i-18].v32[0] ^ pr32[i-23].v32[0];
+         #else
+            // %%FOR* k in range(4)
+            pr32[i].u64[%{k}] = pr32[i-18].u64[%{k}] ^ pr32[i-23].u64[%{k}];
+            // %%END FOR
+         #endif
+     }
+     return;
+     pr32 += MM_AUX_OFS_X / 32 - MM_AUX_OFS_T / 32;
+     for (i = 0; i < 3*2048; ++i) {
+         #ifdef GCC_VECTORS
+            pr32[i].v32[0] = pr32[i-18].v32[0] ^ pr32[i-23].v32[0];
+            if (i < 23) pr32[i].u64[3] = 0;
+         #else
+            // %%FOR* k in range(3)
+            pr32[i].u64[%{k}] = pr32[i-18].u64[%{k}] ^ pr32[i-23].u64[%{k}];
+            // %%END FOR
+         #endif
+     }
+
+}
+
+/// @endcond
+
 
 /**********************************************************************
 * Set the standard axis
@@ -614,7 +672,7 @@ static uint32_t V_PM[4] = {
 
 
 /**
-   @brief Set Matrix to the standard triple v^+, v^-, v_1
+   @brief Set Matrix to the standard triple (v^+, v^-, v_1)
 
 
 */
@@ -622,6 +680,7 @@ static uint32_t V_PM[4] = {
 int32_t mm_axis3_fast_mode1_set_vstd(mmv_fast_matrix_type *pm, uint32_t hash)
 {
     if (pm->mode != 1) return -3;
+    if (hash) set_hash_vstd(pm);
     uint32_t *pv1 = (uint32_t *)MM_VECTOR_V1_MOD3_TABLE;
     uint32_t len_pv1 = pv1[0], i, buf[64];
     ++pv1;
