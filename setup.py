@@ -460,6 +460,7 @@ MM_OP_FAST_SOURCES = '''
    mm_axis3_case6C.c
    mm_axis3_case4A.c
    mm_axis3_fast_reduce.c
+   mm_axis3_fast_orderv_59.c
 '''
 
 MM_OP_FAST_GENERATE = GENERATE_START + '''
@@ -476,6 +477,7 @@ MM_OP_FAST_GENERATE = GENERATE_START + '''
            mmgroup_fast.dev.mm_op_axis_mod3.Case12C4B
            mmgroup_fast.dev.mm_op_axis_mod3.Case6C
            mmgroup_fast.dev.mm_op_axis_mod3.start_vector_lfsr
+           mmgroup_fast.dev.mm_op_axis_mod3.start_vector_59
  --sources mm_op_fast.h
  --sources
 '''.format(**DIR_DICT) + MM_OP_FAST_SOURCES + '''

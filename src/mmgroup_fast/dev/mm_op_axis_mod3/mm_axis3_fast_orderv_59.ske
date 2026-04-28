@@ -1,0 +1,183 @@
+/** @file mm_axis3_fast_reduce.c
+
+
+More details are yet to be documented!
+
+
+
+*/
+
+#include <stdlib.h>
+#include <stdint.h>
+#include "mm_op_fast.h"
+#include "mm_op_fast_intern.h"
+#include "mm_op_sub.h"   
+#include "mm_reduce.h"
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT 
+//  %%GEN c
+
+
+
+
+
+/**********************************************************************
+* Tables for order vector
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+ALIGNED(8) typedef union {
+    uint8_t b[24];
+    uint64_t u64[3]; 
+} mmv_fast_row24_type;
+
+
+static mmv_fast_row24_type ORDER_VECTOR_ABC[] = {
+    // %%TABLE  [[x] for x in ORDER_VECTOR_59_ABC]
+};
+
+
+static mmv_fast_row24_type ORDER_VECTOR_XZY[] = {
+    // %%TABLE  [[x] for x in ORDER_VECTOR_59_XZY]
+};
+
+
+static mmv_fast_row32_type ORDER_VECTOR_T[] = {
+    // %%TABLE  [[x] for x in ORDER_VECTOR_59_T]
+};
+
+
+
+/// @endcond 
+
+/**********************************************************************
+* Load row of order vector with 24 or 32 entries
+**********************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+
+#ifdef GCC_VECTORS
+static ALIGNED(32) v32_8_type MASK = {
+     0xc0, 0xc0, 0xc0, 0xc0,  0xc0, 0xc0, 0xc0, 0xc0, 
+     0xc0, 0xc0, 0xc0, 0xc0,  0xc0, 0xc0, 0xc0, 0xc0, 
+     0xc0, 0xc0, 0xc0, 0xc0,  0xc0, 0xc0, 0xc0, 0xc0,
+     0xc0, 0xc0, 0xc0, 0xc0,  0xc0, 0xc0, 0xc0, 0xc0
+};
+
+#define copy_masked(src, dest, n) dest.v32[0] = src.v32[0] & MASK
+#define shift2(src, n) src.v32[0] <<= 2
+#else
+#define MASK 0xc0c0c0c0c0c0c0c0ULL
+#define copy_masked(src, dest, n) do { \
+    dest.u64[0] = src.u64[0] & MASK; \
+    dest.u64[1] = src.u64[1] & MASK; \
+    dest.u64[2] = src.u64[2] & MASK; \
+    if (n > 24) dest.u64[3] = src.u64[3] & MASK; \
+} while(0)
+#define shift2(src, n) do { \
+    src.u64[0] <<= 2; \
+    src.u64[1] <<= 2; \
+    src.u64[2] <<= 2; \
+    if (n > 24) src.u64[3] <<= 2;  \
+} while(0)
+#endif
+
+
+/// @cond DO_NOT_DOCUMENT 
+
+static void 
+load24(mmv_fast_row24_type *psrc, mmv_fast_row32_type *pdest, uint32_t n) 
+{
+     mmv_fast_row32_type a;
+     a.u64[3] = 0; 
+
+     while (n--) {
+         a.u64[0] = psrc[0].u64[0];  
+         a.u64[1] = psrc[0].u64[1];  
+         a.u64[2] = psrc[0].u64[2];  
+         ++psrc;
+         copy_masked(a, pdest[0], 24);
+         ++pdest;
+         shift2(a, 24);
+         copy_masked(a, pdest[0], 24);
+         ++pdest;
+         shift2(a, 24);
+         copy_masked(a, pdest[0], 24);
+         ++pdest;
+         shift2(a, 24);
+         copy_masked(a, pdest[0], 24);
+         ++pdest;
+     }
+}
+
+
+static void 
+load32(mmv_fast_row32_type *psrc, mmv_fast_row32_type *pdest, uint32_t n) 
+{
+     mmv_fast_row32_type a;
+
+     while (n--) {
+         #ifdef GCC_VECTORS
+         a.v32[0] = psrc[0].v32[0];
+         #else
+         a.u64[0] = psrc[0].u64[0];  
+         a.u64[1] = psrc[0].u64[1];  
+         a.u64[2] = psrc[0].u64[2];  
+         a.u64[3] = psrc[0].u64[3];  
+         #endif  
+         ++psrc;
+         copy_masked(a, pdest[0], 32);
+         ++pdest;
+         shift2(a, 32);
+         copy_masked(a, pdest[0], 32);
+         ++pdest;
+         shift2(a, 32);
+         copy_masked(a, pdest[0], 32);
+         ++pdest;
+         shift2(a, 32);
+         copy_masked(a, pdest[0], 32);
+         ++pdest;
+     }
+}
+
+
+/// @endcond 
+
+/**********************************************************************
+* Load the order vector
+**********************************************************************/
+
+
+
+/**
+   @brief Set Matrix to the standard triple (v^+, v^-, v_1)
+
+
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_load_order_vector(mmv_fast_matrix_type *pm)
+{
+     if (pm == NULL || pm->mode != 1 || pm->p != 3) return -1;
+     mmv_fast_type **p_buf = pm->p_v.p_vb;
+     mmv_fast_type *p_fast = p_buf[pm->current & 1];
+     mmv_fast_row32_type *pr32 = &(p_fast->r32[0]);
+     load24(ORDER_VECTOR_ABC, pr32, 72 / 4);
+     pr32 += MM_AUX_OFS_T / 32;
+     load32(ORDER_VECTOR_T, pr32, 760 / 2);
+     pr32 += MM_AUX_OFS_X / 32 - MM_AUX_OFS_T / 32;
+     load24(ORDER_VECTOR_XZY, pr32, 3 * 2048 / 4);
+     return 0;
+}
+
+
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

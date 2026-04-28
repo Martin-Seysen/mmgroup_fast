@@ -595,10 +595,12 @@ int32_t mm_axis3_fast_reduce_G_x0(mmv_fast_matrix_type *pm, uint32_t *g)
 **********************************************************************/
 /// @cond DO_NOT_DOCUMENT
 
+
+/*******************************************************************
+
 mmv_fast_row32_type START_LFSR[6] = {
     // %%TABLE MM_AXIS3_START_VECTOR_LFSR.reshape((6,1,32))
 };
-
 
 
 static inline void set_hash_vstd(mmv_fast_matrix_type *pm)
@@ -645,6 +647,7 @@ static inline void set_hash_vstd(mmv_fast_matrix_type *pm)
      }
 
 }
+*******************************************************************/
 
 /// @endcond
 
@@ -680,7 +683,8 @@ static uint32_t V_PM[4] = {
 int32_t mm_axis3_fast_mode1_set_vstd(mmv_fast_matrix_type *pm, uint32_t hash)
 {
     if (pm->mode != 1) return -3;
-    if (hash) set_hash_vstd(pm);
+    // if (hash) set_hash_vstd(pm);
+    if (hash) mm_axis3_fast_load_order_vector(pm);
     uint32_t *pv1 = (uint32_t *)MM_VECTOR_V1_MOD3_TABLE;
     uint32_t len_pv1 = pv1[0], i, buf[64];
     ++pv1;
