@@ -20,6 +20,67 @@
 
 
 
+static inline void copy_mode1(mmv_fast_type *psrc, mmv_fast_type *pdest)
+{
+    #ifdef GCC_VECTORS
+    #if GCC_VECTOR_ALIGNED >= 64
+    v64_8_type *ps = psrc->r64->v64, *pd = pdest->r64->v64;
+    ASSUME_ALIGNED(ps, 64);
+    ASSUME_ALIGNED(pd, 64);
+    for (int i = 0; i < MM_FAST_BYTELENGTH/64; ++i) pd[i] = ps[i];
+    #else
+    // gcc is a bit stupid here; so we need an extrawurst for this case
+    v32_8_type *ps = psrc->r64->v32, *pd = pdest->r64->v32;
+    ASSUME_ALIGNED(ps, 64);
+    ASSUME_ALIGNED(pd, 64);
+    for (int i = 0; i < MM_FAST_BYTELENGTH/64; ++i) {
+        *pd++ = *ps++;  *pd++ = *ps++;
+    }
+    #endif
+    #else 
+    uint64_t *ps = psrc->r64->u64, *pd = pdest->r64->u64;
+    ASSUME_ALIGNED(ps, 64);
+    ASSUME_ALIGNED(pd, 64);
+    for (int i = 0; i < MM_FAST_BYTELENGTH/64; ++i) {
+         // %%FOR* j in range(8)
+         pd[%{j}] = ps[%{j}];
+         // %%END FOR 
+         pd += 8; ps += 8;
+    }
+    #endif
+}
+
+
+static inline void zero_mode1(mmv_fast_type *pdest)
+{
+    #ifdef GCC_VECTORS
+    #if GCC_VECTOR_ALIGNED >= 64
+    v64_8_type *pd = pdest->r64->v64;
+    ASSUME_ALIGNED(pd, 64);
+    for (int i = 0; i < MM_FAST_BYTELENGTH/64; ++i) pd[i] = (v64_8_type){0};
+    #else
+    // gcc is a bit stupid here; so we need an extrawurst for this case
+    v32_8_type *pd = pdest->r64->v32;
+    ASSUME_ALIGNED(pd, 64);
+    for (int i = 0; i < MM_FAST_BYTELENGTH/64; ++i) {
+        *pd++ = (v32_8_type){0};  *pd++ = (v32_8_type){0};
+    }
+    #endif
+    #else 
+    uint64_t *pd = pdest->r64->u64;
+    ASSUME_ALIGNED(pd, 64);
+    for (int i = 0; i < MM_FAST_BYTELENGTH/64; ++i) {
+         // %%FOR* j in range(8)
+         pd[%{j}] = 0;
+         // %%END FOR 
+         pd += 8;
+    }
+    #endif
+}
+
+
+
+
 /**
    @brief Yet to be documented!
 */
@@ -39,7 +100,7 @@ int32_t mm_op_fast_init(mmv_fast_matrix_type *pm, uint32_t p, uint32_t nrows, ui
                  p_buf[0] = ptr = (mmv_fast_type*)mm_op_fast_buffer_alloc(
                      sizeof(mmv_fast_type));
                  ASSUME_ALIGNED(ptr, 64);
-                 memset(ptr, 0, sizeof(mmv_fast_type));
+                 zero_mode1(ptr);
                  p_buf[1] = NULL;
                  pm->mode = 1;
                  pm->p = p;
@@ -98,7 +159,6 @@ int32_t mm_op_fast_alloc_work(mmv_fast_matrix_type *pm)
                      p_buf[1] = (mmv_fast_type*)mm_op_fast_buffer_alloc(
                          sizeof(mmv_fast_type));
                      if (p_buf[1] == NULL) return -1;
-                     memset(p_buf[1], 0, sizeof(mmv_fast_type));
                  }
                  return 0;
              }
@@ -120,10 +180,7 @@ int32_t mm_op_fast_dealloc_work(mmv_fast_matrix_type *pm)
              {
                  if ((--pm->work_refcount) > 0) return 0;
                  mmv_fast_type **p_buf = pm->p_v.p_vb;
-                 if (pm->current & 1) {
-                      mmv_fast_type *tmp = p_buf[1];
-                      p_buf[1] = p_buf[0]; p_buf[0] = tmp;
-                 }
+                 if (pm->current & 1) copy_mode1(p_buf[1], p_buf[0]);
                  pm->current = 0;
                  if (p_buf[1] != NULL) {
                      mm_op_fast_buffer_free(p_buf[1], sizeof(mmv_fast_type));
@@ -157,9 +214,10 @@ int32_t mm_op_fast_copy_data(mmv_fast_matrix_type *pm_src, mmv_fast_matrix_type 
                  mmv_fast_type *psrc = psrc_buf[pm_src->current & 1];
                  ASSUME_ALIGNED(psrc, 64);
                  mmv_fast_type **pdest_buf = pm_dest->p_v.p_vb;
-                 mmv_fast_type *pdest = pdest_buf[pm_dest->current & 1];
+                 pm_dest->current = 0;
+                 mmv_fast_type *pdest = pdest_buf[0];
                  ASSUME_ALIGNED(pdest, 64);
-                 memcpy(pdest, psrc, sizeof(mmv_fast_type));
+                 copy_mode1(psrc, pdest);
              }
          default:
              return -1;

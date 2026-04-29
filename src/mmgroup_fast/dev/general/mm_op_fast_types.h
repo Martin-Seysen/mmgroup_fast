@@ -220,8 +220,6 @@ ALIGNED(64) typedef union {
     mmv_fast_row32_type v32row[2];
   #ifdef GCC_VECTORS
     v8_32_type v8_32[2];
-  #endif
-  #if GCC_VECTOR_ALIGNED >= 64
     ALIGNED(64) v64_8_type v64[1];
     v16_32_type v16_32[1];
   #endif
