@@ -1,0 +1,185 @@
+/** @file mm_op_fast_g_init.c
+
+ File ``mm_op_fast_g_init.c`` provides the basic functions for
+ constructing structures of type ``mmv_fast_g_type``
+ representing elements of the Monster.
+
+ This is not yet functional!
+*/
+
+
+#include <stdint.h>
+#include <stdatomic.h>
+#include <stddef.h>
+#include <stdlib.h>
+
+
+/// @cond DO_NOT_DOCUMENT 
+#define MM_OP_FAST_ALLOC
+/// @endcond 
+
+#include "mm_op_fast.h"
+#include "mm_op_sub.h"   
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT
+
+//  %%GEN c
+
+
+#define REFCOUNT_SH          8ULL
+#define REFCOUNT_MASK        ((uint64_t)0x1ULL << REFCOUNT_SH)
+#define FAST_G_FLAG_ATOMIC_FROZEN   0x1
+#define FAST_G_FLAG_ATOMIC_STABLE   0x2
+
+
+#define FAST_G_FLAG_G        0x1
+#define FAST_G_FLAG_V        0x2
+#define FAST_G_FLAG_REDUCED  0x4
+#define FAST_G_FLAG_ASINT    0x8
+// #define FAST_G_FLAG_DELETED  0x40
+
+
+#ifdef __cplusplus
+    static_assert(sizeof(mm_fast_g_type) <= 0x40000, "Buffer for struct mm_fast_g_type too small");
+#else
+    _Static_assert(sizeof(mm_fast_g_type) <= 0x40000, "Buffer for struct mm_fast_g_type too small");
+#endif
+
+// return a pointer to an _Atomic(int64_t)  pointing to space
+// at p_gobj->atomic_buffer
+#define get_atomic_refcount(p_gobj) \
+    (_Atomic(int64_t) *)(void *)(p_gobj->atomic_buffer);
+
+
+
+/**
+   @brief Create new object of type ``mm_fast_g_type``
+
+   The function creates a new object of type ``mmv_fast_matrix_type``
+   and returns a pointer to the object or NULL in case of failure.
+   The new object has the neutral element as value.
+   It is created immutable if  ``frozen != 0`` and mutable otherwise.
+   The reference counter of the new object is 1 if ``refcount`` is set
+   and 0 otherwise.
+
+   Internally, we create a vector of type ``mmv_fast_matrix_type``
+   an we use the slack in the vector data for storing the group    
+   element.
+*/
+static inline mm_fast_g_type *fast_g_obj_new(uint32_t frozen, uint32_t refcount)
+{
+    mmv_fast_matrix_type m;
+    mm_fast_g_type *p_gobj;
+    uint64_t ref_count;
+    if (mm_op_fast_init(&m, 3, 4, 1, 0) < 0) return NULL;
+    p_gobj = (mm_fast_g_type*)(m.p_v.p_vb[0]);
+    _Atomic(int64_t) *p_refcount =  get_atomic_refcount(p_gobj);
+    memcpy(&p_gobj->v, &m, sizeof(m));
+    p_gobj->state = FAST_G_FLAG_G & FAST_G_FLAG_REDUCED;
+    ref_count = FAST_G_FLAG_ATOMIC_FROZEN | FAST_G_FLAG_ATOMIC_STABLE
+              | (ref_count ? (1 << REFCOUNT_SH) : 0);
+    atomic_init(p_refcount, ref_count);
+    p_gobj->len_g = p_gobj->len_g_h = 0;
+    p_gobj->inverse = NULL;
+    return p_gobj;
+}
+
+
+
+
+/**
+   @brief Delete an object of type ``mm_fast_g_type``
+
+   The function deletes an object of type ``mmv_fast_matrix_type``.
+   It deletes the object itself and the vector of
+   type ``mmv_fast_matrix_type`` associated with that object.
+   
+   The function does not care about threads, reference counter,
+   links to other object of this type, etc.
+*/
+static inline void fast_g_obj_delete(mm_fast_g_type *p_gobj)
+{
+    mmv_fast_matrix_type m;
+    if (p_gobj == NULL) return;
+    memcpy(&m, &p_gobj->v, sizeof(m));
+    mm_op_fast_dealloc(&m); 
+}
+
+
+
+
+
+
+/**
+   @brief copy data between objects of type ``mm_fast_g_type``
+
+   The function copies data from the object ``p_src`` of
+   type ``mmv_fast_matrix_type``  to the object ``p_dest`` of
+   the same type. The object ``p_dest`` must be mutable or
+   known by one thread only.
+*/
+static inline int32_t fast_g_obj_copy(mm_fast_g_type *p_src, mm_fast_g_type *p_dest)
+{
+    int32_t status;
+    uint64_t src_state;
+    p_dest->state = src_state = p_src->state;
+    
+    if ((src_state & FAST_G_FLAG_V) | p_dest->len_g_h) {
+        status = mm_op_fast_copy_data(&p_src->v, &p_dest->v);
+        if (status < 0) return status;
+    } 
+    p_dest->len_g_h = p_src->len_g_h;
+    if (src_state & FAST_G_FLAG_REDUCED) {
+        p_dest->len_g_reduced = p_src->len_g_reduced; 
+        p_dest->len_g = 0; 
+        for(uint32_t i = 0; i < p_src->len_g_reduced; ++i) {
+            p_dest->g_reduced[i] = p_src->g_reduced[i];
+        }
+    } else if (src_state & FAST_G_FLAG_G) {
+        p_dest->len_g = p_src->len_g;
+        p_dest->len_g_reduced = 9; 
+        for(uint32_t i = 0; i < p_src->len_g; ++i) {
+            p_dest->g[i] = p_src->g[i];
+        }
+    }
+    if (src_state & FAST_G_FLAG_ASINT) {
+        for(uint32_t i = 0; i < 4; ++i) {
+            p_dest->int_g[i] = p_src->int_g[i];
+        }
+    }
+}
+
+
+
+
+/**
+   @brief get write access to  objects of type ``mm_fast_g_type``
+
+
+*/
+static inline int64_t fast_g_obj_write_access(mm_fast_g_type *p_gobj)
+{
+    int spins = 0;
+    _Atomic(int64_t) *p_refcount =  get_atomic_refcount(p_gobj);
+    for(;;) {
+        int64_t ref_count = atomic_load(p_refcount);
+        if ((ref_count & FAST_G_FLAG_ATOMIC_FROZEN) == 0) return ref_count;
+        int64_t old_state = ref_count | FAST_G_FLAG_ATOMIC_STABLE;
+        int64_t new_state = old_state & ~FAST_G_FLAG_ATOMIC_STABLE;         
+        if (atomic_compare_exchange_weak(
+            p_refcount, &old_state, new_state)) return new_state;
+        if (++spins > 8) cpu_pause();
+    }
+}
+
+
+
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

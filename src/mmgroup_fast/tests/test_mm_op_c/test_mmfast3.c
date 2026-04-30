@@ -150,7 +150,7 @@ int work(char *f_in_name, char *f_out_name, uint32_t align_offset)
     FILE *f_in, *f_out;
     int32_t status = 0, len;
    
-    mm_op_fast_init(pv, 3, 4, 1);
+    mm_op_fast_init(pv, 3, 4, 1, 1);
     pb = mm_op_fast_raw_vb_data(pv, NULL);
     srand((unsigned int)time(NULL)); // seed with current time
     for (i = 0; i < MM_FAST_BYTELENGTH; ++i) {

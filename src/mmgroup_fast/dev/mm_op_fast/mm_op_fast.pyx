@@ -78,7 +78,7 @@ cdef class MMOpFastMatrix:
             raise ValueError(err % (hex(res), method))  
 
     def __cinit__(self, *args, **kwds):
-        mm_op_fast_init(&self.m, 0, 0, 0)
+        mm_op_fast_init(&self.m, 0, 0, 0, 0)
 
     def  __dealloc__(self):
         mm_op_fast_dealloc(&self.m)
@@ -86,7 +86,7 @@ cdef class MMOpFastMatrix:
     def __init__(self, uint32_t p, uint32_t nrows, uint32_t mode = 1):
         if not p in MAX_NROWS:
             raise ValueError("Bad modulus %s for class MMOpFastArray" % p) 
-        if mm_op_fast_init(&self.m, p, nrows, mode) != 0:
+        if mm_op_fast_init(&self.m, p, nrows, mode, 1) != 0:
              raise ValueError("Too many rows or bad modulus for class MMOpFastArray") 
 
     def copy(self):

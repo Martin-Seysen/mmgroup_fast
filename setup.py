@@ -461,6 +461,7 @@ MM_OP_FAST_SOURCES = '''
    mm_axis3_case4A.c
    mm_axis3_fast_reduce.c
    mm_axis3_fast_orderv_59.c
+   mm_op_fast_g_init.c
 '''
 
 MM_OP_FAST_GENERATE = GENERATE_START + '''
@@ -468,6 +469,7 @@ MM_OP_FAST_GENERATE = GENERATE_START + '''
  --source-path {SRC_DIR}/mmgroup_fast/dev/mm_op_fast
  --source-path {SRC_DIR}/mmgroup_fast/dev/general
  --source-path {SRC_DIR}/mmgroup_fast/dev/mm_op_axis_mod3
+ --source-path {SRC_DIR}/mmgroup_fast/dev/mm_op_fast_g
  --tables  mmgroup_fast.dev.mm_op_fast.mm_op_fast_pi
            mmgroup_fast.dev.mm_op_fast.mm_op_fast_xi_monomial
            mmgroup_fast.dev.mm_op_axis_mod3.Case6A

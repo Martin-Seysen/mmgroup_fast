@@ -122,7 +122,7 @@ static void aligned_free64(void *p)
     _aligned_free(p);
 }
 
-static inline void cpu_pause(void)
+static inline void do_cpu_pause(void)
 {
     _mm_pause();
 }
@@ -154,7 +154,7 @@ static void aligned_free64(void *p)
     _aligned_free(p);
 }
 
-static inline void cpu_pause(void)
+static inline void do_cpu_pause(void)
 {
     _mm_pause();
 }
@@ -186,7 +186,7 @@ static void aligned_free64(void *p)
     free(p);
 }
 
-static inline void cpu_pause(void)
+static inline void do_cpu_pause(void)
 {
 #if defined(__i386__) || defined(__x86_64__)
     __builtin_ia32_pause();
@@ -221,7 +221,7 @@ static void aligned_free64(void *p)
     free(p);
 }
 
-static inline void cpu_pause(void)
+static inline void do_cpu_pause(void)
 {
     atomic_signal_fence(memory_order_seq_cst);
 }
@@ -271,6 +271,26 @@ static inline BufferPool* get_pool(uint32_t buffer_size)
 /// @endcond
 
 
+/****************************************************************
+** cpu puse for multithreading
+****************************************************************/
+
+/// @cond DO_NOT_DOCUMENT 
+
+/**
+   @brief cpu pause for memory allocation
+*/
+// %%EXPORT px
+void cpu_pause(void)
+{
+    do_cpu_pause();
+}
+
+
+/// @endcond 
+
+
+
 
 /****************************************************************
 ** Alloc
@@ -318,7 +338,7 @@ void* mm_op_fast_buffer_alloc(uint32_t buffer_size)
             return head;
         }
 
-        if (++spins > 8) cpu_pause();
+        if (++spins > 8) do_cpu_pause();
     }
 }
 
@@ -349,7 +369,7 @@ static inline void buffer_gc(BufferPool *p, uint32_t n_free)
             if(atomic_compare_exchange_weak(&p->freelist,&head_val,new_val))
                 break;
 
-            if (++spins > 8) cpu_pause();
+            if (++spins > 8) do_cpu_pause();
         }
 
         aligned_free64(head);
@@ -420,7 +440,7 @@ void mm_op_fast_buffer_free(void *ptr, uint32_t buffer_size)
             break;
         }
 
-        if (++spins > 8) cpu_pause();
+        if (++spins > 8) do_cpu_pause();
     }
 }
 

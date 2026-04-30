@@ -3,6 +3,8 @@
  File ``mm_op_fast_init.c`` provides the basic functions for
  constructing structures of type ``mmv_fast_matrix_type``
  representing matrices of row vectors acting on the Griess algebra.
+
+ At present, only mode = 1 with p = 3 is supported.
 */
 
 /// @cond DO_NOT_DOCUMENT 
@@ -82,10 +84,21 @@ static inline void zero_mode1(mmv_fast_type *pdest)
 
 
 /**
-   @brief Yet to be documented!
+   @brief Initialize structure of type ``mmv_fast_matrix_type``
+
+   The function initializes a structure of type ``mmv_fast_matrix_type``
+   referred by ``pm``. Such a structure contains a matrix of ``nrows``
+   row vectors, where each row vector is a vector in the Griess algebra
+   with entries take modulo ``p``. Parameter ``mode`` determines how
+   the matrix is stored in memory. if ``setzero`` is not 0 then all
+   matrix entries are set to 0; otherwise they are undefined.
+
+   Currently the following mmodes are supported:
+
+   mode = 0: then p = 3 and nrows <= 4 must hold.
 */
 // %%EXPORT p
-int32_t mm_op_fast_init(mmv_fast_matrix_type *pm, uint32_t p, uint32_t nrows, uint32_t mode)
+int32_t mm_op_fast_init(mmv_fast_matrix_type *pm, uint32_t p, uint32_t nrows, uint32_t mode, uint32_t setzero)
 {
      // int32_t status;
      
@@ -100,7 +113,7 @@ int32_t mm_op_fast_init(mmv_fast_matrix_type *pm, uint32_t p, uint32_t nrows, ui
                  p_buf[0] = ptr = (mmv_fast_type*)mm_op_fast_buffer_alloc(
                      sizeof(mmv_fast_type));
                  ASSUME_ALIGNED(ptr, 64);
-                 zero_mode1(ptr);
+                 if (setzero) zero_mode1(ptr);
                  p_buf[1] = NULL;
                  pm->mode = 1;
                  pm->p = p;

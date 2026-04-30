@@ -5,6 +5,9 @@
 #include <stddef.h>
 
 
+
+
+
 #ifndef MM_OP_FAST_TYPES_H_INCLUDED
 #define MM_OP_FAST_TYPES_H_INCLUDED
 
@@ -289,6 +292,27 @@ ALIGNED(32) typedef struct  {
     int32_t mode_B;
     int32_t len_B[2];
 } mmv_fast_Amod3_type;
+
+
+#define MM_FAST_MAXLEN_G 0x800
+#define MM_FAST_MAXLEN_G_RED 65
+
+
+
+
+ALIGNED(64) typedef struct mm_fast_g_type {
+    mmv_fast_type vdata;
+    ALIGNED(64) uint64_t atomic_buffer[16];
+    mmv_fast_matrix_type v;
+    int64_t state;
+    struct mm_fast_g_type *inverse;
+    int32_t len_g;
+    int32_t len_g_h;
+    int32_t g[MM_FAST_MAXLEN_G];
+    int32_t len_g_reduced;
+    int32_t g_reduced[MM_FAST_MAXLEN_G_RED];
+    uint64_t int_g[4];
+} mm_fast_g_type;
 
 
 
