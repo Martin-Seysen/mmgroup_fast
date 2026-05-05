@@ -277,11 +277,13 @@ static inline int64_t fast_g_obj_augment(mm_fast_g_type *p_gobj, int64_t new_sta
                 MM_FAST_MAXLEN_G_RED, 1); 
           if (len < 0) goto failure;
           p_gobj->len_g_reduced = len;
+          p_gobj->len_g = 0;
           new_state |= FAST_G_FLAG_REDUCED | FAST_G_FLAG_G;
      }
      if (new_state & ~state & FAST_G_FLAG_ASINT) {
           if (~state & FAST_G_FLAG_REDUCED) goto failure;
-          p_gt = gt_word_alloc(1, &p_gobj->g, sizeof(&p_gobj->mat));
+          p_gobj->len_g = 0;
+          p_gt = gt_word_alloc(1, &p_gobj->g, sizeof(&p_gobj->g));
           if (p_gt == NULL) goto failure;
           if (gt_word_append(p_gt, p_gobj->g_reduced, p_gobj->len_g_reduced)
               < 0) goto failure;
@@ -312,7 +314,8 @@ failure:
    Thist costs up to len_g * abs(e) vector operations.
  
 */
-static inline int64_t fast_g_obj_mul_exp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
+static inline int64_t 
+fast_g_obj_mul_exp_direct(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
 {
      int64_t state = fast_g_obj_state(p_gobj);
      if (state & (FAST_G_FLAG_ERROR | FAST_G_FLAG_FROZEN)) return -1;
@@ -320,19 +323,21 @@ static inline int64_t fast_g_obj_mul_exp(mm_fast_g_type *p_gobj, uint32_t *g, ui
            (uint64_t)len_g * (uint64_t)(abs(e)) > 0x40000000ULL) goto failure;
      if (len_g == 0 || e == 0) return 0;
      if (p_gobj->state & FAST_G_FLAG_REDUCED) {
-          // Delare group element as non reduced
+          // Declare group element as unreduced
           for (uint32_t i = 0; i < p_gobj->len_g_reduced; ++i) {
               p_gobj->g[i] = p_gobj->g_reduced[i];
           }
           p_gobj->state &= ~(FAST_G_FLAG_REDUCED | FAST_G_FLAG_ASINT);
           p_gobj->len_g = p_gobj->len_g_reduced;
+          p_gobj->len_g_mat = (p_gobj->state & FAST_G_FLAG_MAT) ?
+                              p_gobj->len_g : 0;
           p_gobj->state |= FAST_G_FLAG_G;
      }
      uint32_t length = p_gobj->len_g + abs(e) * len_g;
      if (length > MAXLEN_UNREDUCED || (p_gobj->state & FAST_G_FLAG_G) == 0 || e > 4) {
          if (fast_g_obj_augment(p_gobj, FAST_G_FLAG_MAT) < 0) goto failure;
          p_gobj->state &= ~FAST_G_FLAG_G;
-         if (fast_g_obj_mul_exp(p_gobj, g, len_g, e) < 0) goto failure;
+         if (mm_op_fast_word(&p_gobj->mat, g, len_g, e) < 0) goto failure;
      } else {
           uint32_t *p_start = p_gobj->g + len_g;
           for (uint32_t i = 0; i < len_g; ++i) p_start[i] = g[i];
@@ -442,7 +447,7 @@ static inline mm_fast_g_type *fast_g_obj_get_frozen_neutral(void)
     FROZEN_NEUTRAL->len_g_reduced = FROZEN_NEUTRAL->len_g
         = FROZEN_NEUTRAL->len_g_mat = 0;
     _Atomic(int64_t) *p_refcount =  get_atomic_refcount(FROZEN_NEUTRAL);
-    int64_t final_state = REFCOUNT_INC | FAST_G_FLAG_FROZEN | FAST_G_FLAG_STABLE 
+    int64_t final_state = (2*REFCOUNT_INC) | FAST_G_FLAG_FROZEN | FAST_G_FLAG_STABLE 
      | FAST_G_FLAG_G  | FAST_G_FLAG_MAT | FAST_G_FLAG_REDUCED;
     FROZEN_NEUTRAL->inverse = FROZEN_NEUTRAL;
     atomic_store(p_refcount, final_state);
@@ -471,7 +476,7 @@ static inline mm_fast_g_type *fast_g_obj_get_frozen_inverse(mm_fast_g_type *p_sr
     if (pg == NULL) return NULL;
     state = fast_g_obj_write_access(p_src);
     p_gobj = fast_g_obj_new();
-    if (fast_g_obj_mul_exp(p_gobj, pg, len_g, -1) < 0) goto failure;
+    if (fast_g_obj_mul_exp_direct(p_gobj, pg, len_g, -1) < 0) goto failure;
     fast_g_obj_freeze_direct(p_gobj, 0);
     p_gobj->inverse = p_src;
     p_src->inverse = p_gobj;
@@ -490,43 +495,50 @@ failure:
 
 
 /**
- @brief Create a variable
+ @brief Create a variable of type ``mm_fast_g_type``
 
- Yet to be documented
+ The function creates a variable of type ``mm_fast_g_type`` and returns
+ a pointer to that variable. The value of the variable is ``g1**e``.
+ Here  ``g1`` is the value of the variable referred by ``p1``,
+ and ``e`` must be 0, 1, or -1. ``p1 == NULL`` is interpreted as the
+ neutral element of the Monster.
+
+ The function returns ``NULL`` in case of failure. The created variable
+ is frozen if ``frozen`` is nonzero.  If ``frozen == 0`` then we always
+ create a copy of the veriable.  
 */
 // %%EXPORT p
-mm_fast_g_type *fast_g_obj_create(mm_fast_g_type *p_src, int32_t e, int32_t frozen)
+mm_fast_g_type *fast_g_obj_create(mm_fast_g_type *p1, int32_t e, int32_t frozen)
 {
     mm_fast_g_type *p_gobj = NULL;
-    if (e == 0) {
+    if (e == 0 || p1 == NULL || p1 == FROZEN_NEUTRAL) {
         if (frozen) return fast_g_obj_get_frozen_neutral();
         return fast_g_obj_new();
     }
-    if (p_src == NULL) return NULL;
-    int64_t state = fast_g_obj_state(p_src);
+    int64_t state = fast_g_obj_state(p1);
     if (state & FAST_G_FLAG_ERROR) return NULL;
     if ((state & FAST_G_FLAG_FROZEN) && (state & REFCOUNT_MASK) <= 0)
              return NULL;
     if (e == -1 && (state & FAST_G_FLAG_FROZEN)) {
-        mm_fast_g_type *p_src_new = fast_g_obj_get_frozen_inverse(p_src);
-        if (p_src_new != NULL) {
-            p_src = p_src_new;
+        mm_fast_g_type *p1_new = fast_g_obj_get_frozen_inverse(p1);
+        if (p1_new != NULL) {
+            p1 = p1_new;
             e = 1;
         }
     }
     if (e == 1 && frozen && (state & FAST_G_FLAG_FROZEN)) {
-        _Atomic(int64_t) *p_refcount =  get_atomic_refcount(p_src);
+        _Atomic(int64_t) *p_refcount =  get_atomic_refcount(p1);
         atomic_fetch_add(p_refcount, REFCOUNT_INC);
-        return p_src;
+        return p1;
     }
     p_gobj = fast_g_obj_new();
     if (e == 1) {
-        if (fast_g_obj_copy(p_src, p_gobj) < 0) goto failure;
+        if (fast_g_obj_copy(p1, p_gobj) < 0) goto failure;
     } else if (e == -1) {
         uint32_t len_g = 0;
-        uint32_t *pg = fast_g_obj_get_g(p_src, &len_g, 1);
+        uint32_t *pg = fast_g_obj_get_g(p1, &len_g, 1);
         if (pg == NULL) goto failure;
-        if (fast_g_obj_mul_exp(p_gobj, pg, len_g, -1) < 0) goto failure;
+        if (fast_g_obj_mul_exp_direct(p_gobj, pg, len_g, -1) < 0) goto failure;
     } else goto failure;
     if (frozen) fast_g_obj_freeze_direct(p_gobj, 1);
     return p_gobj;
@@ -538,9 +550,55 @@ failure:
 
 
 /**
- @brief Delete a variable
+ @brief Create a product of two elements of type ``mm_fast_g_type``
 
- Yet to be documented
+ The function creates a variable of type ``mm_fast_g_type`` and returns
+ a pointer to that variable. The value of the variable is ``g1 * g2**e``.
+ Here  ``g1`` and ``g2`` are the values of the variable referred
+ by ``p1`` and ``p2``. A pointer ``p1 == NULL`` or ``p2 == NULL`` is
+ interpreted as the neutral element of the Monster.
+
+ The function returns ``NULL`` in case of failure. The created variable
+ is frozen if ``frozen`` is nonzero. If ``frozen == 0`` then we always
+ create a copy of the veriable. 
+
+ Caution: The run time of the function is linear in the absolute
+ value of ``e``.
+   
+*/
+// %%EXPORT p
+mm_fast_g_type *fast_g_obj_create_product(mm_fast_g_type *p1, mm_fast_g_type *p2, int32_t e, int32_t frozen)
+{
+    mm_fast_g_type *p_gobj = NULL;
+    if (e == 0 || p2 == NULL || p2 == FROZEN_NEUTRAL) {
+        return fast_g_obj_create(p1, 1, frozen);
+    }
+    if (p1 != NULL && fast_g_obj_augment(p1, FAST_G_FLAG_MAT) < 0) goto failure;
+    p_gobj = fast_g_obj_create(p1, 1, 0);
+    uint32_t len_g = 0;
+    uint32_t *pg = fast_g_obj_get_g(p2, &len_g, 1);
+    if (pg == NULL) goto failure;
+    if (fast_g_obj_mul_exp_direct(p_gobj, pg, len_g, e) < 0) goto failure;
+    if (frozen) fast_g_obj_freeze_direct(p_gobj, 1);
+    return p_gobj;
+
+failure:
+    if (p_gobj != NULL) fast_g_obj_delete_direct(p_gobj);
+    return NULL;
+}
+
+
+
+
+
+/**
+ @brief Delete a variable of type ``mm_fast_g_type``
+
+ Any variable of type  ``mm_fast_g_type`` created by one of the
+ functions ``fast_g_obj_create`` or ""fast_g_obj_create_product`` 
+ must be deleted with this function.
+
+ Applying this function to a NULL pointer causes no harm.
 */
 // %%EXPORT p
 int32_t *fast_g_obj_delete(mm_fast_g_type *p_gobj)
@@ -570,6 +628,59 @@ int32_t *fast_g_obj_delete(mm_fast_g_type *p_gobj)
     fast_g_obj_delete_direct(p_gobj);
     return 0;
 }
+
+
+/**
+ @brief Freeze a variable of type ``mm_fast_g_type``
+
+ Yet to be documented!
+
+ Applying this function to a NULL pointer causes no harm.
+*/
+void fast_g_obj_freeze(mm_fast_g_type *p_gobj)
+{
+    if (p_gobj == NULL || p_gobj == FROZEN_NEUTRAL) return;
+    fast_g_obj_freeze_direct(p_gobj, 1);        
+}
+
+
+/**
+ @brief Unfreeze a variable of type ``mm_fast_g_type``
+
+ Tries to reverse the operation of function ``fast_g_obj_freeze``
+ and to unfreeze the object ``p_gobj``.
+
+ This function may always fail, so the user needs a fallback
+ strategy. The function returns 0 in case of success and a
+ negative value in case of failure.
+
+ When this function starts executing, the object of
+ type ``mm_fast_g_type`` referred by ``p_gobj``  (as created
+ by one of the functions ``fast_g_obj_create``
+ or ``fast_g_obj_create_product``)  is no longer thread safe.
+
+ Calling this function with a NULL pointer causes failure,
+ but no harm. 
+*/
+int32_t fast_g_obj_unfreeze(mm_fast_g_type *p_gobj)
+{
+    if (p_gobj == NULL || p_gobj == FROZEN_NEUTRAL) return -1;
+    int64_t state = fast_g_obj_state(p_gobj);
+    if ((state & FAST_G_FLAG_FROZEN) == 0) return 0;
+    if ((state & REFCOUNT_MASK) != REFCOUNT_INC ||
+        (state & FAST_G_FLAG_ERROR) || 
+        (state & FAST_G_FLAG_STABLE) == 0 ||
+        p_gobj->inverse != NULL) return -1;
+    int64_t old_state = state;
+    int64_t new_state = state &~FAST_G_FLAG_FROZEN;
+
+    _Atomic(int64_t) *p_refcount =  get_atomic_refcount(p_gobj);
+    if (atomic_compare_exchange_weak(
+         p_refcount, &old_state, new_state)) return 0;
+    return -1;
+}
+
+
 
 
 
