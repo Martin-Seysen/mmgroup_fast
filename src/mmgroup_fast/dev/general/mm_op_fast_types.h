@@ -303,14 +303,14 @@ ALIGNED(32) typedef struct  {
 ALIGNED(64) typedef struct mm_fast_g_type {
     mmv_fast_type vdata;
     ALIGNED(64) uint64_t atomic_buffer[16];
-    mmv_fast_matrix_type v;
+    mmv_fast_matrix_type mat;
     int64_t state;
     struct mm_fast_g_type *inverse;
-    int32_t len_g;
-    int32_t len_g_h;
-    int32_t g[MM_FAST_MAXLEN_G];
-    int32_t len_g_reduced;
-    int32_t g_reduced[MM_FAST_MAXLEN_G_RED];
+    uint32_t len_g;
+    uint32_t len_g_mat;
+    uint32_t g[MM_FAST_MAXLEN_G];
+    uint32_t len_g_reduced;
+    uint32_t g_reduced[MM_FAST_MAXLEN_G_RED];
     uint64_t int_g[4];
 } mm_fast_g_type;
 

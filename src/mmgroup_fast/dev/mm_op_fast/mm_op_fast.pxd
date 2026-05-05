@@ -52,6 +52,10 @@ cdef extern from "mm_op_fast_types.h":
         
         
 
+    ctypedef struct mm_fast_g_type:
+        # Do not access these components in Cython! 
+        uint32_t _dummy;
+
 
 
 
