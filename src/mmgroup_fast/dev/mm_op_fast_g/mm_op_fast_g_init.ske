@@ -57,6 +57,12 @@
 
 
 
+/**********************************************************************
+* Create and delete a buffer for an object of type ``mm_fast_g_type``
+**********************************************************************/
+
+
+
 /**
    @brief Create new object of type ``mm_fast_g_type``
 
@@ -105,6 +111,12 @@ static inline void fast_g_obj_delete_direct(mm_fast_g_type *p_gobj)
 }
 
 
+/**********************************************************************
+* Get status of an object of type ``mm_fast_g_type``
+**********************************************************************/
+
+
+
 /**
    @brief Return state of an object of type ``mm_fast_g_type``
 
@@ -123,52 +135,9 @@ static inline int64_t fast_g_obj_state(mm_fast_g_type *p_gobj)
 
 
 
-
-
-/**
-   @brief copy data between objects of type ``mm_fast_g_type``
-
-   The function copies data from the object ``p_src`` of
-   type ``mmv_fast_matrix_type``  to the object ``p_dest`` of
-   the same type.
-
-   The object ``p_dest`` must be mutable. 
-   This condition is not checked.
-
-   The function return 0 in case of success and a negative value in
-   case of error.
-*/
-static inline int32_t fast_g_obj_copy(mm_fast_g_type *p_src, mm_fast_g_type *p_dest)
-{
-    int32_t status;
-    p_dest->state = fast_g_obj_state(p_src) & (FAST_G_FLAG_G
-      | FAST_G_FLAG_MAT | FAST_G_FLAG_REDUCED | FAST_G_FLAG_ASINT);
-    if (p_dest->state & FAST_G_FLAG_MAT) {
-        status = mm_op_fast_copy_data(&p_src->mat, &p_dest->mat);
-        if (status < 0) return status;
-    } 
-    p_dest->len_g_mat = p_src->len_g_mat;
-    if (p_dest->state & FAST_G_FLAG_REDUCED) {
-        p_dest->len_g_reduced = p_src->len_g_reduced; 
-        p_dest->len_g = 0; 
-        for(uint32_t i = 0; i < p_src->len_g_reduced; ++i) {
-            p_dest->g_reduced[i] = p_src->g_reduced[i];
-        }
-    } else if (p_dest->state & FAST_G_FLAG_G) {
-        p_dest->len_g = p_src->len_g;
-        p_dest->len_g_reduced = 0; 
-        for(uint32_t i = 0; i < p_src->len_g; ++i) {
-            p_dest->g[i] = p_src->g[i];
-        }
-    }
-    if (p_dest->state & FAST_G_FLAG_ASINT) {
-        for(uint32_t i = 0; i < 4; ++i) {
-            p_dest->int_g[i] = p_src->int_g[i];
-        }
-    }
-    return 0;
-}
-
+/**********************************************************************
+* Manage write access for an object of type ``mm_fast_g_type``
+**********************************************************************/
 
 
 
@@ -223,16 +192,47 @@ fast_g_obj_release_write_access(mm_fast_g_type *p_gobj, int64_t new_state)
             p_gobj->state |= new_state;
             return p_gobj->state;
         }
-        int64_t old_state = p_gobj->state;
-        new_state |= old_state;         
+        new_state |= state;         
         if (atomic_compare_exchange_weak(
-            p_refcount, &old_state, new_state)) return new_state;
+            p_refcount, &state, state)) return new_state;
         if (++spins > 8) cpu_pause();
     }
 }
 
+/**********************************************************************
+* Obtain a frozen neutral element
+**********************************************************************/
+
+static mm_fast_g_type *FROZEN_NEUTRAL = NULL;
+
+static atomic_flag frozen_neutral_lock = ATOMIC_FLAG_INIT;
+
+static inline mm_fast_g_type *fast_g_obj_get_frozen_neutral(void)
+{
+    if (FROZEN_NEUTRAL) return FROZEN_NEUTRAL;
+    int spins = 0;
+
+    while (atomic_flag_test_and_set_explicit(
+                       &frozen_neutral_lock, memory_order_acquire)) {
+        if (++spins > 8) cpu_pause();
+    }
+    FROZEN_NEUTRAL = fast_g_obj_new();
+    mm_axis3_fast_load_order_vector(&FROZEN_NEUTRAL->mat);
+    FROZEN_NEUTRAL->len_g_reduced = FROZEN_NEUTRAL->len_g
+        = FROZEN_NEUTRAL->len_g_mat = 0;
+    _Atomic(int64_t) *p_refcount =  get_atomic_refcount(FROZEN_NEUTRAL);
+    int64_t final_state = (2*REFCOUNT_INC) | FAST_G_FLAG_FROZEN | FAST_G_FLAG_STABLE 
+     | FAST_G_FLAG_G  | FAST_G_FLAG_MAT | FAST_G_FLAG_REDUCED;
+    FROZEN_NEUTRAL->inverse = FROZEN_NEUTRAL;
+    atomic_store(p_refcount, final_state);
+    atomic_flag_clear_explicit(&frozen_neutral_lock, memory_order_release);
+    return FROZEN_NEUTRAL;
+}
 
 
+/**********************************************************************
+* Augment the information in an element
+**********************************************************************/
 
 /**
    @brief get write access to  objects of type ``mm_fast_g_type``
@@ -302,6 +302,118 @@ failure:
 
 
 
+/**********************************************************************
+* Read data of freom element
+**********************************************************************/
+
+
+
+#define MAXLEN_REDUCED 64
+
+
+/**
+   @brief Obtain group element as word of generators
+
+   The function returns a pointer to the group elemnt ``g`` stored
+   in he object of type ``mm_fast_g_type`` referred by ``p_gobj``.
+   The pointer points into the buffer referred by ``p_gobj``. The
+   group element is obtained as an array of type ``uint32_t[]``.
+   The length of that array is returned in the variable referred
+   by ``p_len``. The 
+   
+   Argument ``lmax`` is a hint for the maximum feasible length of the
+   returned array in units of the approximate maximum length of a
+   reduced word. Setting ``lmax = 0`` forces word reduction.
+
+   The function returns NULL in case of falure; 
+*/
+static inline uint32_t *fast_g_obj_get_g(mm_fast_g_type *p_gobj, uint32_t *p_len, int32_t lmax)
+{
+     int64_t state = fast_g_obj_state(p_gobj);
+     if (state & FAST_G_FLAG_ERROR) return NULL;
+     if ((state &  FAST_G_FLAG_G) == 0) {
+        if (fast_g_obj_augment(p_gobj, FAST_G_FLAG_REDUCED) < 0) goto failure;
+     }
+     if ((state & FAST_G_FLAG_REDUCED) == 0 
+                                 && p_gobj->len_g >= lmax * MAXLEN_REDUCED) {
+        if (fast_g_obj_augment(p_gobj, FAST_G_FLAG_REDUCED) < 0) goto failure;
+     }
+     if (state & FAST_G_FLAG_REDUCED) {
+         *p_len = p_gobj->len_g_reduced;
+         return  p_gobj->g_reduced;
+     } else {
+         if ((state &  FAST_G_FLAG_G) == 0) goto failure;
+         *p_len = p_gobj->len_g;
+         return  p_gobj->g;
+     }
+       
+failure:
+    p_gobj->state |= FAST_G_FLAG_ERROR;
+    return NULL;
+
+}
+
+
+
+
+/**********************************************************************
+* Change the value of an element
+**********************************************************************/
+
+
+
+
+/**
+   @brief copy data between objects of type ``mm_fast_g_type``
+
+   The function copies data from the object ``p_src`` of
+   type ``mmv_fast_matrix_type``  to the object ``p_dest`` of
+   the same type.
+
+   The object ``p_dest`` must be mutable. 
+   This condition is not checked.
+
+   The function return 0 in case of success and a negative value in
+   case of error.
+*/
+static inline int32_t fast_g_obj_copy(mm_fast_g_type *p_src, mm_fast_g_type *p_dest)
+{
+    int32_t status;
+    p_dest->state = fast_g_obj_state(p_src) & (FAST_G_FLAG_G
+      | FAST_G_FLAG_MAT | FAST_G_FLAG_REDUCED | FAST_G_FLAG_ASINT);
+    if (p_dest->state & FAST_G_FLAG_MAT) {
+        status = mm_op_fast_copy_data(&p_src->mat, &p_dest->mat);
+        if (status < 0) return status;
+    } 
+    p_dest->len_g_mat = p_src->len_g_mat;
+    if (p_dest->state & FAST_G_FLAG_REDUCED) {
+        p_dest->len_g_reduced = p_src->len_g_reduced; 
+        p_dest->len_g = 0; 
+        for(uint32_t i = 0; i < p_src->len_g_reduced; ++i) {
+            p_dest->g_reduced[i] = p_src->g_reduced[i];
+        }
+    } else if (p_dest->state & FAST_G_FLAG_G) {
+        p_dest->len_g = p_src->len_g;
+        p_dest->len_g_reduced = 0; 
+        for(uint32_t i = 0; i < p_src->len_g; ++i) {
+            p_dest->g[i] = p_src->g[i];
+        }
+    }
+    if (p_dest->state & FAST_G_FLAG_ASINT) {
+        for(uint32_t i = 0; i < 4; ++i) {
+            p_dest->int_g[i] = p_src->int_g[i];
+        }
+    }
+    return 0;
+}
+
+
+
+
+
+
+
+
 #define MAXLEN_UNREDUCED 512
 
 
@@ -361,51 +473,6 @@ failure:
 
 
 
-#define MAXLEN_REDUCED 64
-
-
-/**
-   @brief Obtain group element as word of generators
-
-   The function returns a pointer to the group elemnt ``g`` stored
-   in he object of type ``mm_fast_g_type`` referred by ``p_gobj``.
-   The pointer points into the buffer referred by ``p_gobj``. The
-   group element is obtained as an array of type ``uint32_t[]``.
-   The length of that array is returned in the variable referred
-   by ``p_len``. The 
-   
-   Argument ``lmax`` is a hint for the maximum feasible length of the
-   returned array in units of the approximate maximum length of a
-   reduced word. Setting ``lmax = 0`` forces word reduction.
-
-   The function returns NULL in case of falure; 
-*/
-static inline uint32_t *fast_g_obj_get_g(mm_fast_g_type *p_gobj, uint32_t *p_len, int32_t lmax)
-{
-     int64_t state = fast_g_obj_state(p_gobj);
-     if (state & FAST_G_FLAG_ERROR) return NULL;
-     if ((state &  FAST_G_FLAG_G) == 0) {
-        if (fast_g_obj_augment(p_gobj, FAST_G_FLAG_REDUCED) < 0) goto failure;
-     }
-     if ((state & FAST_G_FLAG_REDUCED) == 0 
-                                 && p_gobj->len_g >= lmax * MAXLEN_REDUCED) {
-        if (fast_g_obj_augment(p_gobj, FAST_G_FLAG_REDUCED) < 0) goto failure;
-     }
-     if (state & FAST_G_FLAG_REDUCED) {
-         *p_len = p_gobj->len_g_reduced;
-         return  p_gobj->g_reduced;
-     } else {
-         if ((state &  FAST_G_FLAG_G) == 0) goto failure;
-         *p_len = p_gobj->len_g;
-         return  p_gobj->g;
-     }
-       
-failure:
-    p_gobj->state |= FAST_G_FLAG_ERROR;
-    return NULL;
-
-}
-
 
 
 /**********************************************************************
@@ -424,36 +491,6 @@ static inline void fast_g_obj_freeze_direct(mm_fast_g_type *p_gobj, int32_t refc
      atomic_store(p_refcount, state);     
 }
 
-
-/**********************************************************************
-* A frozen neutral element
-**********************************************************************/
-
-static mm_fast_g_type *FROZEN_NEUTRAL = NULL;
-
-static atomic_flag frozen_neutral_lock = ATOMIC_FLAG_INIT;
-
-static inline mm_fast_g_type *fast_g_obj_get_frozen_neutral(void)
-{
-    if (FROZEN_NEUTRAL) return FROZEN_NEUTRAL;
-    int spins = 0;
-
-    while (atomic_flag_test_and_set_explicit(
-                       &frozen_neutral_lock, memory_order_acquire)) {
-        if (++spins > 8) cpu_pause();
-    }
-    FROZEN_NEUTRAL = fast_g_obj_new();
-    mm_axis3_fast_load_order_vector(&FROZEN_NEUTRAL->mat);
-    FROZEN_NEUTRAL->len_g_reduced = FROZEN_NEUTRAL->len_g
-        = FROZEN_NEUTRAL->len_g_mat = 0;
-    _Atomic(int64_t) *p_refcount =  get_atomic_refcount(FROZEN_NEUTRAL);
-    int64_t final_state = (2*REFCOUNT_INC) | FAST_G_FLAG_FROZEN | FAST_G_FLAG_STABLE 
-     | FAST_G_FLAG_G  | FAST_G_FLAG_MAT | FAST_G_FLAG_REDUCED;
-    FROZEN_NEUTRAL->inverse = FROZEN_NEUTRAL;
-    atomic_store(p_refcount, final_state);
-    atomic_flag_clear_explicit(&frozen_neutral_lock, memory_order_release);
-    return FROZEN_NEUTRAL;
-}
 
 
 /**********************************************************************
