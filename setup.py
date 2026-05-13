@@ -483,6 +483,7 @@ MM_OP_FAST_GENERATE = GENERATE_START + '''
  --sources mm_op_fast.h
  --sources
 '''.format(**DIR_DICT) + MM_OP_FAST_SOURCES + '''
+ --pyx  mm_op_fast_g.pxi
  --pxd  mm_op_fast.pxd
  --pxi
  --pyx  mm_op_fast.pyx
