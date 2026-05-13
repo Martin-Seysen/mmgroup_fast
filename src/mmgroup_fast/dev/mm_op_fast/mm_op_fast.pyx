@@ -47,6 +47,10 @@ from mm_op_fast cimport mm_op_fast_buffer_stat
 from mm_op_fast cimport mm_op_fast_buffer_test_start
 from mm_op_fast cimport mm_op_fast_buffer_test_stop
 
+from mm_op_fast cimport fast_g_obj_new
+from mm_op_fast cimport fast_g_obj_delete
+
+
 from mmgroup import MMVector
 
 include "mm_op_fast.pxi"
@@ -618,4 +622,23 @@ cdef class FastBuffer:
                 found = 1
         if not found:
             print("   <No buffers present>")
+
+
+
+
+cdef class MMOpFastG:
+    cdef mm_fast_g_type *ptr
+    def __cinit__(self, *args, **kwds):
+        self.ptr = <mm_fast_g_type *>fast_g_obj_new()
+        if self.ptr == NULL:
+            raise MemoryError("Out of memory for class class MMOpFastG")
+
+    def  __dealloc__(self):
+        fast_g_obj_delete(self.ptr)
+        self.ptr = NULL
+
+    def __init__(self):
+        pass
+
+
 

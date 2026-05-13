@@ -294,25 +294,12 @@ ALIGNED(32) typedef struct  {
 } mmv_fast_Amod3_type;
 
 
-#define MM_FAST_MAXLEN_G 0x800
-#define MM_FAST_MAXLEN_G_RED 65
 
 
 
 
-ALIGNED(64) typedef struct mm_fast_g_type {
-    mmv_fast_type vdata;
-    ALIGNED(64) uint64_t atomic_buffer[16];
-    mmv_fast_matrix_type mat;
-    int64_t state;
-    struct mm_fast_g_type *inverse;
-    uint32_t len_g;
-    uint32_t len_g_mat;
-    uint32_t g[MM_FAST_MAXLEN_G];
-    uint32_t len_g_reduced;
-    uint32_t g_reduced[MM_FAST_MAXLEN_G_RED];
-    uint64_t int_g[4];
-} mm_fast_g_type;
+
+ALIGNED(64) typedef struct mm_fast_g_type  mm_fast_g_type;
 
 
 
