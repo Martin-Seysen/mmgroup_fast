@@ -496,7 +496,7 @@ _watermark_A(mmv_fast_Amod3_type *pa, uint32_t *data)
         r += r >> 16;
         r += r >> 32;
         r = (r >> 1) & 0x1f;
-        r += (uint32_t)(pb[0] & 3) << 8;
+        r += (uint32_t)(pb[0] & 3) << 5;
         data[i] = (uint32_t)r;
         pw += 4;
         pb += 33;
