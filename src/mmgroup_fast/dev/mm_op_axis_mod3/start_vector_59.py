@@ -32,13 +32,6 @@ def map_x(x_index):
     v2 = mm_aux_index_sparse_to_leech2(x_index) 
     return ((v2 & 0xfff) << 12) | ((v2 >> 12) & 0xfff)    
 
-Y_INDICES = [("A", i, j) for i in range(2) for j in range(i+1, 24)]
-X_INDICES = [("B", i, j) for i in range(2) for j in range(i+1, 24)]
-X_INDICES += [("C", 0, j)  for j in range(1, 24)]
-BASIS = [0] + [1 << i for i in range(11)]
-X_INDICES += [("X", i, j) for j in range(0, 24)  for i in  BASIS]
-del BASIS
-
 
 def eqn_system(vector, tag_indices, map_f, n, error_msg):
     entries = [vector[index] for index in tag_indices]
@@ -67,6 +60,11 @@ def eqn_sign(vector):
 
 
 def check_v(v):
+    Y_INDICES = [("A",i,j) for i in range(10) for j in range(i+1, 24)]
+    X_INDICES = [("B",i,j) for i in range(10) for j in range(i+1, 24)]
+    X_INDICES += [("C",0,j)  for j in range(1, 24)]
+    BASIS = [0] + [1 << i for i in range(11)]
+    X_INDICES += [("X",i,j) for j in range(0, 24)  for i in  BASIS]
     result_y = eqn_system(v, Y_INDICES, map_y, 11, "Y")
     result_x = eqn_system(v, X_INDICES, map_x, 24, "X")
     result_sign = eqn_sign(v)
@@ -273,7 +271,7 @@ if __name__ == "__main__":
                 yx = check_v(s59)
                 break
             except:
-                raise
+                #raise
                 continue
         try:
             #print(s_g, s_v, s_ga)
