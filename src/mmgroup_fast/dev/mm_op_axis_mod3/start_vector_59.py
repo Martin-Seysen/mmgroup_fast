@@ -13,63 +13,8 @@ from mmgroup.clifford12 import leech2matrix_add_eqn
 from mmgroup.clifford12 import leech2matrix_solve_eqn
 from mmgroup.mm_op import mm_aux_index_sparse_to_leech2
 from mmgroup.dev.mm_reduce.find_order_vector import find_vector_p_mod3
+from mmgroup.dev.mm_reduce.find_order_vector import check_v
 
-
-####################################################################
-## Compute entries of order vector s59 for finding 2-group
-####################################################################
-
-
-def map_y(y_index):
-    i, j = (y_index >> 14) & 0x1f, (y_index >> 8) & 0x1f
-    vect = (1 << i) + (1 << j)
-    gc = vect_to_cocode(vect)
-    assert 0 <= gc < 0x800
-    return gc 
-    
-    
-def map_x(x_index):
-    v2 = mm_aux_index_sparse_to_leech2(x_index) 
-    return ((v2 & 0xfff) << 12) | ((v2 >> 12) & 0xfff)    
-
-
-def eqn_system(vector, tag_indices, map_f, n, error_msg):
-    entries = [vector[index] for index in tag_indices]
-    indices = [MMSpace.index_to_sparse(*x) for x in tag_indices]
-    matrix= np.zeros(24, dtype = np.uint64)
-    rows, cols = 0, n
-    out_indices = []
-    for (entry, index) in zip(entries, indices):
-        if entry == 1:
-            eqn = map_f(index)
-            new_rows = leech2matrix_add_eqn(matrix, rows, cols, eqn)
-            if new_rows:
-                out_indices.append(index)
-                rows += new_rows
-                if rows == n:
-                    return out_indices
-    raise ValueError("Check %s failed, %d rows found" % (error_msg, rows)) 
-
-
-def eqn_sign(vector):
-    for i in range(100):
-        for j in range(24):
-            if vector["Z", i, j] == 1:
-                return [ MMSpace.index_to_sparse("Z", i, j) ]
-    raise ValueError("Check for sign failed") 
-
-
-def check_v(v):
-    Y_INDICES = [("A",i,j) for i in range(10) for j in range(i+1, 24)]
-    X_INDICES = [("B",i,j) for i in range(10) for j in range(i+1, 24)]
-    X_INDICES += [("C",0,j)  for j in range(1, 24)]
-    BASIS = [0] + [1 << i for i in range(11)]
-    X_INDICES += [("X",i,j) for j in range(0, 24)  for i in  BASIS]
-    result_y = eqn_system(v, Y_INDICES, map_y, 11, "Y")
-    result_x = eqn_system(v, X_INDICES, map_x, 24, "X")
-    result_sign = eqn_sign(v)
-    return result_y + result_x + result_sign
-    
 
 ####################################################################
 ## Compute vector v59 and order vector s59 from group element g59
@@ -195,7 +140,7 @@ def compute_vector_59_mod3(g59, v59, a59):
     sys.path.pop()
     g59 = MM0('a', G59)
     v59 = MMVector(3, 'S', V59)
-    a59 = MM0('a', G59)
+    a59 = MM0('a', A59)
     return s59_from_g59(g59, v59, a59)
 
 
@@ -262,16 +207,19 @@ class MockupTables:
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()  # sometimes needed
+
     if "-w" in sys.argv:
         for i in range(10):
             try:
-                s_g, s_v, s_ga = find_vector_p_mod3(59)
-                g, v, ga = MM0(s_g), MMVector(3,s_v), MM0(s_ga)
+                s_g, s_v, s_ga, yx = find_vector_p_mod3(59)
+                g, v, ga = MM0(s_g), MMVector(3, s_v), MM0(s_ga)
                 s59 = s59_from_v59(g, v, ga)
-                yx = check_v(s59)
+                yx_check = check_v(s59)
+                print(yx_check, yx)
+                assert yx_check == yx
                 break
             except:
-                #raise
+                raise
                 continue
         try:
             #print(s_g, s_v, s_ga)
