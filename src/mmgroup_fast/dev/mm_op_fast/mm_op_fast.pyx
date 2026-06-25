@@ -8,6 +8,10 @@ from __future__ import  unicode_literals
 #cimport mm_op_fast as op_fast
 
 from collections.abc import Iterable
+from numbers import Integral
+from mmgroup.structures.abstract_mm_group import AbstractMMGroupWord
+from mmgroup import MMVector, MM0
+
 
 import numpy as np
 from libc.string cimport memcpy 
@@ -49,9 +53,13 @@ from mm_op_fast cimport mm_op_fast_buffer_test_stop
 
 from mm_op_fast cimport fast_g_obj_new
 from mm_op_fast cimport fast_g_obj_delete
-
-
-from mmgroup import MMVector
+from mm_op_fast cimport fast_g_obj_freeze
+from mm_op_fast cimport fast_g_obj_get_g
+from mm_op_fast cimport fast_g_obj_mulexp
+from mm_op_fast cimport fast_g_obj_mulexp_obj
+from mm_op_fast cimport fast_g_obj_get_mat
+from mm_op_fast cimport fast_g_obj_as_int_fast
+from mm_op_fast cimport fast_g_obj_nonneutral
 
 include "mm_op_fast.pxi"
 
