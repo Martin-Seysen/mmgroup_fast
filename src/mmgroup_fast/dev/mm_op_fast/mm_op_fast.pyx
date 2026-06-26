@@ -55,11 +55,13 @@ from mm_op_fast cimport fast_g_obj_new
 from mm_op_fast cimport fast_g_obj_delete
 from mm_op_fast cimport fast_g_obj_freeze
 from mm_op_fast cimport fast_g_obj_get_g
+from mm_op_fast cimport fast_g_obj_copy
 from mm_op_fast cimport fast_g_obj_mulexp
 from mm_op_fast cimport fast_g_obj_mulexp_obj
 from mm_op_fast cimport fast_g_obj_get_mat
 from mm_op_fast cimport fast_g_obj_as_int_fast
 from mm_op_fast cimport fast_g_obj_nonneutral
+from mm_op_fast cimport fast_g_obj_setpower
 
 include "mm_op_fast.pxi"
 

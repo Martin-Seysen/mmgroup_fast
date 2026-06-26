@@ -491,24 +491,55 @@ uint64_t *fast_g_obj_as_int_fast(mm_fast_g_type *p_gobj)
 }
 
 
+
+/**********************************************************************
+* Set object of type ``mm_fast_g_type`` to the neutral element
+**********************************************************************/
+
+/**
+   @brief Set object of type ``mm_fast_g_type`` to the neutral element
+
+   The function return 0 in case of success and a negative value in
+   case of error;.
+*/
+// %%EXPORT p
+int32_t fast_g_obj_setneutral(mm_fast_g_type *p_gobj)
+{
+    if (p_gobj == NULL) return -1;
+    _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
+    uint32_t flags = get_flags(p_gobj);
+    if (flags & (FLAG_ERROR | FLAG_FROZEN)) goto failure;
+    atomic_store(p_flags, 0);  // paranoia
+    p_gobj->len_g = p_gobj->len_g_mat = p_gobj->len_g_reduced = 0;
+    atomic_store(p_flags,
+         FLAG_G & FLAG_SHORT & FLAG_REDUCED & FLAG_STABLE);
+    return 0;
+
+failure:
+    atomic_store(p_flags, FLAG_ERROR | FLAG_FROZEN);
+    return -1;
+
+}
+
+
 /**********************************************************************
 * Multiply object of type ``mm_fast_g_type`` with word of generators
 **********************************************************************/
 
 
 /**
-   @brief Multiply object of type ``mm_fast_g_type`` with word of generators
+   @brief Lo level function for function ``fast_g_obj_mulexp``
 
    Here the object of type ``mm_fast_g_type`` referred by ``p_gobj``
    must be mutable. It is multiplied by the element g**e, where g
    is stored as a word of length ``len_g`` in the buffer ``g``.
    This costs up to len_g * abs(e) vector operations.
  
-   The function return 0 in case of success and a negetive value in
-   case of error;
+   The function return 0 in case of success and a negative value in
+   case of error
 */
 // %%EXPORT p
-int32_t fast_g_obj_mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
+int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
 {
     if (p_gobj == NULL) return -1;
     _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
@@ -562,13 +593,78 @@ int32_t fast_g_obj_mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, i
    if (p_gobj->len_g <= MM_FAST_MAXLEN_G_RED)    flags |= FLAG_SHORT;
    atomic_store(p_flags, flags);
    return 0;
-    
+  
 failure:    
+   atomic_store(p_flags, FLAG_ERROR | FLAG_FROZEN);
+   return -1;
+}
+
+
+// N_OP[i] = approximate No of operations for rising to i-th power
+static uint8_t N_OP[17] =  {0,0,2,3, 4,5,5,6, 6,6,7,8, 7,8,7,8, 8};
+// N_RED_LEN = average length of reduced word
+#define  N_RED_LEN 41.0
+
+static int32_t use_exp(uint32_t len_g, int64_t e)
+{
+     float n_op, w;
+     e = abs(e);
+     if (e <= 1 || len_g == 0) return 0;
+     if (e <= 16) {
+         n_op =  N_OP[e];
+     } else if (e <= 256) {
+         n_op = uint64_bit_len(e-1) * 2.5 - 2;
+     } else return 1;
+     w = N_RED_LEN * (n_op + 1) + len_g - len_g * e;
+     return (int32_t)(w < 0);
+}
+
+
+/**
+   @brief Multiply object of type ``mm_fast_g_type`` with word of generators
+
+   Here the object of type ``mm_fast_g_type`` referred by ``p_gobj``
+   must be mutable. It is multiplied by the element g**e, where g
+   is stored as a word of length ``len_g`` in the buffer ``g``.
+
+   The function returns 0 in case of success and a negative value in
+   case of error
+*/
+// %%EXPORT p
+int32_t fast_g_obj_mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
+{
+     // Caution:
+     // Don't call fast_g_obj_setpower() with abs(e) < 6!
+     // Otherwise there will be infinite recursion!!!
+     if (use_exp(len_g, e) == 0) return mulexp(p_gobj, g, len_g, e);
+     uint64_t abs_e = abs((int64_t)e);
+     mm_fast_g_type *exp = fast_g_obj_new();
+     if (exp == NULL) goto failure;
+     if (mulexp(exp, g, len_g, 1) < 0) goto failure;
+     if (abs_e >= 6) {
+         if (fast_g_obj_setpower(exp, e) < 0) goto failure;
+         e = 1;
+     }
+     uint32_t len_src = 0;
+     uint32_t *g_src = fast_g_obj_get_g(exp, 0, &len_src);
+     if (g_src == NULL) goto failure;
+     if (mulexp(p_gobj, g_src, len_src, e) < 0) goto failure;
+     fast_g_obj_delete(exp);
+     return 0;
+ 
+failure:
+    if (exp) fast_g_obj_delete(exp);
+    _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
     atomic_store(p_flags, FLAG_ERROR | FLAG_FROZEN);
     return -1;    
 }
 
 
+
+
+/**********************************************************************
+* Copy data of object of type ``mm_fast_g_type``
+**********************************************************************/
 
 
 /**
@@ -579,10 +675,10 @@ failure:
    to the object  referred by ``p_gobj``. If ``g_only`` is nonzero
    then only a (short word) ``g`` is copied.
  
-   The function return 0 in case of success and a negetive value in
-   case of error;
+   The function return 0 in case of success and a negative value in
+   case of error.
 */
-static inline 
+// %%EXPORT p
 int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t g_only)
 {
     if (p_gobj == NULL || p_src == NULL) return -1;
@@ -641,10 +737,9 @@ failure:
    Here the object of type ``mm_fast_g_type`` referred by ``p_gobj``
    must be mutable. It is multiplied by the element g**e, where g
    is the  object of type ``mm_fast_g_type`` referred by ``p_src``.
-   This costs up to len_g * abs(e) vector operations.
- 
-   The function return 0 in case of success and a negetive value in
-   case of error;
+
+   The function return 0 in case of success and a negative value in
+   case of error.
 */
 // %%EXPORT p
 int32_t fast_g_obj_mulexp_obj(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int32_t e)
@@ -660,17 +755,130 @@ int32_t fast_g_obj_mulexp_obj(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int
          if (e == 1) return 0; 
          e = e - 1;
     }
+    // Caution:
+    // Don't call fast_g_obj_setpower() with abs(e) < 6!
+    // Otherwise there will be infinite recursion!!!
     uint32_t len_src = 0;
     uint32_t *g_src = fast_g_obj_get_g(p_src, 0, &len_src);
     return fast_g_obj_mulexp(p_gobj, g_src, len_src, e);
 
-failure:    
+failure:
     atomic_store(p_flags, FLAG_ERROR | FLAG_FROZEN);
     return -1;    
 
 }
 
 
+/**********************************************************************
+* Exponentiation of an object of type ``mm_fast_g_type``
+**********************************************************************/
+
+/**
+   @brief Set object of type ``mm_fast_g_type`` to the ``e``-th power
+
+   Exponentiation is done in place.
+
+   The function return 0 in case of success and a negative value in
+   case of error.
+*/
+// %%EXPORT p
+int32_t fast_g_obj_setpower(mm_fast_g_type *p_gobj, int64_t e)
+{
+    // Assertion:
+    // fast_g_obj_setpower() never calls fast_g_obj_mulexp_obj()
+    // with an exponent e with abs(e) >= 6.
+    // Otherwise fast_g_obj_mulexp_obj() runs into infinite recursion!
+
+    mm_fast_g_type *f1 = NULL, *f3 = NULL, *f;
+    if (p_gobj == NULL) return -1;
+    _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
+    uint32_t flags = get_flags(p_gobj);
+    int32_t status = -1;
+    if (flags & (FLAG_ERROR | FLAG_FROZEN)) goto failure;
+    if (e == 1) return 0;
+    if (e == 0) return fast_g_obj_setneutral(p_gobj);
+    while ((e & 3) == 0) {
+        status = fast_g_obj_mulexp_obj(p_gobj, p_gobj, 3);
+        if (status < 0) goto failure;;
+        e >>= 2;
+    }
+    if (e < 0) {
+        uint32_t g_len = 0;
+        uint32_t *p_g = fast_g_obj_get_g(p_gobj, 0, &g_len);
+        status = -1;
+        if (p_g == NULL) goto failure;
+        atomic_store(p_flags, 0);  // paranoia
+        memmove(p_gobj->g, p_g, g_len * sizeof(uint32_t));
+        mm_group_invert_word(p_gobj->g, g_len);
+        p_gobj->len_g_mat = p_gobj->len_g_reduced = 0;
+        p_gobj->len_g = g_len;
+        atomic_store(p_flags, FLAG_G & FLAG_SHORT & FLAG_STABLE);
+        e = -e;
+    }
+    while ((e % 3) == 0) {
+        status = fast_g_obj_mulexp_obj(p_gobj, p_gobj, 2);
+        if (status < 0) goto failure;;
+        e = e / 3;
+    }
+    if (e < 6) return fast_g_obj_mulexp_obj(p_gobj, p_gobj, e-1);
+
+    // Now e >= 6. Process the first two bits after the leading bit
+    // of e and store 1st and 3rd power of basis in f1 and f3.
+    uint32_t bpos = uint64_bit_len(e) - 1;  // pos. of leading bit
+    uint32_t d = (e >> (bpos - 2)) & 3;     // next two bits to be done
+    f1 = fast_g_obj_new();
+    f3 = fast_g_obj_new();
+    status = -1;
+    if (f1 == NULL || f3 == NULL) goto failure;
+    status = fast_g_obj_copy(p_gobj, f1, 0);
+    if (status < 0) goto failure;
+    status = fast_g_obj_mulexp_obj(p_gobj, p_gobj, 2);
+    if (status < 0) goto failure;
+    status = fast_g_obj_copy(p_gobj, f3, 0);
+    if (status < 0) goto failure;
+    if (d == 2) {
+        status = fast_g_obj_mulexp_obj(p_gobj, p_gobj, 1);
+        if (status < 0) goto failure;
+    } else {
+        status = fast_g_obj_mulexp_obj(p_gobj, f1, 1);
+        if (status < 0) goto failure;
+        if (d) {
+             f = (d == 3) ?  f3 : f1;
+             status = fast_g_obj_mulexp_obj(p_gobj, f, 1);
+             if (status < 0) goto failure;
+        }
+    }
+    bpos -= 2;
+
+    while (bpos > 0) {
+        // let k be the number of bits to be processed, which is 1 or 2
+        // let d be the value of this bit field, which is 0, 1, or 3
+        uint32_t k = bpos < 2 ? 1 : 2;
+        if (k == 2) {
+            d =  (e >> (bpos - 2)) & 3;
+            if (d == 2) k = d = 1;
+        } else d =  (e >> (bpos - 1)) & 1;
+        status = fast_g_obj_mulexp_obj(p_gobj, p_gobj, (1 << k) - 1);
+        if (status < 0) goto failure;
+        if (d) {
+             f = (d == 3) ?  f3 : f1;
+             status = fast_g_obj_mulexp_obj(p_gobj, f, 1);
+             if (status < 0) goto failure;
+        }
+        bpos -= k;
+    }
+    fast_g_obj_delete(f1);
+    fast_g_obj_delete(f3);
+    return 0;
+
+
+
+failure:
+    if (f1) fast_g_obj_delete(f1);
+    if (f3) fast_g_obj_delete(f3);
+    atomic_store(p_flags, FLAG_ERROR | FLAG_FROZEN);
+    return status;
+}
 
 
 

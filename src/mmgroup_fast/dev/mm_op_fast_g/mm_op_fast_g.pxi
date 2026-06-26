@@ -2,7 +2,8 @@
 
 cdef class MMOpFastG:
     ERR_MUL = "Multiplication in class MMOpFastG failed, status = %d"
-    #ERR_COPY = "Copying in class MMOpFastG failed, status = %d"
+    ERR_COPY = "Copying in class MMOpFastG failed, status = %d"
+    _MAXEXP = 1 << 62
     cdef mm_fast_g_type *ptr
 
     def __cinit__(self, *args, **kwds):
@@ -94,18 +95,47 @@ cdef class MMOpFastG:
             raise ValueError(self.ERR_MUL % status)
         return self
 
-    def exp(self, e = 1):
+
+    def copy(self, uint32_t g_only = 0):
         mycopy = MMOpFastG()
         cdef  mm_fast_g_type *myptr = <mm_fast_g_type *>mycopy.ptr
-        cdef int32_t status = fast_g_obj_mulexp_obj(myptr, self.ptr, e)
+        cdef int32_t status = fast_g_obj_copy(myptr, self.ptr, g_only)
         if (status < 0):
-             raise ValueError(self.ERR_MUL % status)
+             raise ValueError(self.ERR_COPY % status)
         return mycopy
+        fast_g_obj_copy
+
+
+    def exp(self, e):
+        mycopy = MMOpFastG()
+        cdef  mm_fast_g_type *myptr = <mm_fast_g_type *>mycopy.ptr
+        cdef int32_t status
+        if abs(e) < self._MAXEXP:
+            status = fast_g_obj_mulexp_obj(myptr, self.ptr, e)
+            if (status < 0):
+                raise ValueError(self.ERR_MUL % status)
+            return mycopy
+        eh, el = divmod(e, self._MAXEXP)
+        h = self.exp(eh)
+        cdef  mm_fast_g_type *hptr = <mm_fast_g_type *>h.ptr
+        status = fast_g_obj_mulexp_obj(myptr, hptr, self._MAXEXP)
+        if (status < 0):
+            raise ValueError(self.ERR_MUL % status)
+        status = fast_g_obj_mulexp_obj(myptr, self.ptr, el)
+        if (status < 0):
+            raise ValueError(self.ERR_MUL % status)
+        return mycopy
+        
 
 
     def __mul__(self, other):
-        return self.exp().mulexp(other)
+        return self.copy().mulexp(other)
 
+    def __rmul__(self, other):
+        mycopy = MMOpFastG()
+        mycopy.mulexp(other)
+        mycopy.mulexp(self)
+        return mycopy
 
     def conj(self, other):
         inv = MMOpFastG().mulexp(other, -1)
