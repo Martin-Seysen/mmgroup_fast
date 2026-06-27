@@ -62,6 +62,7 @@ from mm_op_fast cimport fast_g_obj_get_mat
 from mm_op_fast cimport fast_g_obj_as_int_fast
 from mm_op_fast cimport fast_g_obj_nonneutral
 from mm_op_fast cimport fast_g_obj_setpower
+from mm_op_fast cimport fast_g_obj_get_flags
 
 include "mm_op_fast.pxi"
 

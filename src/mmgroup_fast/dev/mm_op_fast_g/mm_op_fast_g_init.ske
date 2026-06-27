@@ -95,6 +95,20 @@ get_flags(mm_fast_g_type *p_gobj)
 }
 
 
+/**
+   @brief Get flags of object of type ``mm_fast_g_type``
+
+   The function returns the flags of an object of
+   type ``mm_fast_g_type``. This is a function for debugging.
+*/
+// %%EXPORT p
+uint64_t fast_g_obj_get_flags(mm_fast_g_type *p_gobj)
+{
+     return (p_gobj != NULL) ? get_flags(p_gobj) : 0;
+}
+
+
+
 static uint64_t 
 get_write_access(mm_fast_g_type *p_gobj, uint64_t requested)
 // Wait until object *p_gobj of type mm_fast_g_typ is writable and
