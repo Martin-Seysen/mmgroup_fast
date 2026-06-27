@@ -14,11 +14,8 @@ MMV3 = MMV(3)
 @pytest.mark.mmm
 @pytest.mark.mm_op
 def test_basis():
-    for i in range(10):
+    for i in range(30):
         a = MMOpFastG()
-        """
-        # The following test produces an error!!!
         a._display_flags()
         print(a)
-        """
         del a

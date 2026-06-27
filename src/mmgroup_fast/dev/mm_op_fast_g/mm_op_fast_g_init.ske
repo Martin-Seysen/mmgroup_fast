@@ -197,7 +197,7 @@ mm_fast_g_type *fast_g_obj_new()
     memcpy(&p_gobj->mat, &mat, sizeof(mat));
     _Atomic(uint64_t) *p_refcount =  get_atomic_p_flags(p_gobj);
     atomic_init(p_refcount,
-         FLAG_G & FLAG_SHORT & FLAG_REDUCED & FLAG_STABLE);
+         FLAG_G | FLAG_SHORT | FLAG_REDUCED | FLAG_STABLE);
     p_gobj->len_g = p_gobj->len_g_mat = p_gobj->len_g_reduced = 0;
     return p_gobj;
 }
@@ -526,7 +526,7 @@ int32_t fast_g_obj_setneutral(mm_fast_g_type *p_gobj)
     atomic_store(p_flags, 0);  // paranoia
     p_gobj->len_g = p_gobj->len_g_mat = p_gobj->len_g_reduced = 0;
     atomic_store(p_flags,
-         FLAG_G & FLAG_SHORT & FLAG_REDUCED & FLAG_STABLE);
+         FLAG_G | FLAG_SHORT | FLAG_REDUCED | FLAG_STABLE);
     return 0;
 
 failure:
@@ -573,7 +573,7 @@ int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
     if ((flags & FLAG_G) == 0 ||
         (llen_g + lg) > MM_FAST_MAXLEN_G_RED || abs(e) > 4) {
         flags = augment(p_gobj, FLAG_MAT);
-        if (flags & FLAG_ERROR || (flags && FLAG_MAT) == 0) goto failure;
+        if (flags & FLAG_ERROR || (flags & FLAG_MAT) == 0) goto failure;
         atomic_store(p_flags, 0);  // paranoia
         if (mm_op_fast_word(&p_gobj->mat, g, len_g, e) < 0) goto failure;
         p_gobj->len_g_reduced = p_gobj->len_g_mat = p_gobj->len_g = 0;
@@ -826,7 +826,7 @@ int32_t fast_g_obj_setpower(mm_fast_g_type *p_gobj, int64_t e)
         mm_group_invert_word(p_gobj->g, g_len);
         p_gobj->len_g_mat = p_gobj->len_g_reduced = 0;
         p_gobj->len_g = g_len;
-        atomic_store(p_flags, FLAG_G & FLAG_SHORT & FLAG_STABLE);
+        atomic_store(p_flags, FLAG_G | FLAG_SHORT | FLAG_STABLE);
         e = -e;
     }
     while ((e % 3) == 0) {

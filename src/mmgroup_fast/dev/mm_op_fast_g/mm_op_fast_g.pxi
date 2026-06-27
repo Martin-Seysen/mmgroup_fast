@@ -24,7 +24,7 @@ cdef class MMOpFastG:
 
     def __init__(self, *g):
         if len(g):
-             self.mulexp(MM0(*g))
+            self.mulexp(MM0(*g))
         pass
 
     def _display_flags(self):
