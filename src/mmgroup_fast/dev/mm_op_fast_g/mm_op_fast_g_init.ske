@@ -42,7 +42,7 @@ ALIGNED(64) struct mm_fast_g_type {
     ALIGNED(64) uint64_t atomic_buffer[16];
     mmv_fast_matrix_type mat;
     uint32_t len_g;
-    uint32_t len_g_mat;
+    int32_t  len_g_mat; // negative calue means: no matrix present
     uint32_t g[MM_FAST_MAXLEN_G];
     uint32_t len_g_reduced;
     uint32_t g_reduced[MM_FAST_MAXLEN_G_RED];
@@ -198,7 +198,8 @@ mm_fast_g_type *fast_g_obj_new()
     _Atomic(uint64_t) *p_refcount =  get_atomic_p_flags(p_gobj);
     atomic_init(p_refcount,
          FLAG_G | FLAG_SHORT | FLAG_REDUCED | FLAG_STABLE);
-    p_gobj->len_g = p_gobj->len_g_mat = p_gobj->len_g_reduced = 0;
+    p_gobj->len_g = p_gobj->len_g_reduced = 0;
+    p_gobj->len_g_mat = -1;
     return p_gobj;
 }
 
@@ -274,6 +275,10 @@ static int64_t compute_mat(mm_fast_g_type *p_gobj, int64_t flags)
 {
     uint32_t g_start, g_end, *pg;
     if (flags & FLAG_MAT) return flags;
+    if (p_gobj->len_g_mat < 0) {
+         mm_axis3_fast_load_order_vector(&p_gobj->mat);
+         p_gobj->len_g_mat = 0;
+    }
     if (flags & FLAG_REDUCED) {
          pg = p_gobj->g_reduced;
          g_start = 0; g_end = p_gobj->len_g_reduced;
@@ -281,17 +286,17 @@ static int64_t compute_mat(mm_fast_g_type *p_gobj, int64_t flags)
          pg = p_gobj->g;
          g_end = p_gobj->len_g;
          if (p_gobj->len_g_mat > p_gobj->len_g) return flags | FLAG_ERROR;  
-         g_start =  p_gobj->len_g_mat;
+         g_start = p_gobj->len_g_mat;
     } else return flags | FLAG_ERROR; 
-    p_gobj->len_g_mat = 0;
-    if (g_start == 0) {
-         mm_axis3_fast_load_order_vector(&p_gobj->mat);
-    }
     if (mm_op_fast_word(&p_gobj->mat, pg + g_start, g_end - g_start, 1) < 0)
               return flags | FLAG_ERROR; 
-    p_gobj->len_g_mat = p_gobj->len_g; 
+    p_gobj->len_g_mat = g_end; 
     return flags | FLAG_MAT;
 }
+
+
+
+
 
 
 /**
@@ -524,7 +529,8 @@ int32_t fast_g_obj_setneutral(mm_fast_g_type *p_gobj)
     uint32_t flags = get_flags(p_gobj);
     if (flags & (FLAG_ERROR | FLAG_FROZEN)) goto failure;
     atomic_store(p_flags, 0);  // paranoia
-    p_gobj->len_g = p_gobj->len_g_mat = p_gobj->len_g_reduced = 0;
+    p_gobj->len_g = p_gobj->len_g_reduced = 0;
+    p_gobj->len_g_mat = -1;
     atomic_store(p_flags,
          FLAG_G | FLAG_SHORT | FLAG_REDUCED | FLAG_STABLE);
     return 0;
@@ -534,6 +540,82 @@ failure:
     return -1;
 
 }
+
+
+/**********************************************************************
+* Copy data of object of type ``mm_fast_g_type``
+**********************************************************************/
+
+
+/**
+   @brief Copy data of object of type ``mm_fast_g_type``
+
+   Here the object of type ``mm_fast_g_type`` referred by ``p_gobj``
+   must be mutable. The function copies the object referred by ``p_src``
+   to the object  referred by ``p_gobj``. If ``g_only`` is nonzero
+   then only a (short word) ``g`` is copied.
+ 
+   The function return 0 in case of success and a negative value in
+   case of error.
+*/
+// %%EXPORT p
+int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t g_only)
+{
+    if (p_gobj == NULL || p_src == NULL) return -1;
+    _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
+    uint32_t flags = get_flags(p_gobj);
+    uint32_t new_flags = 0;
+    uint32_t src_flags = get_flags(p_src);
+    if (flags & (FLAG_ERROR | FLAG_FROZEN)) goto failure;
+    atomic_store(p_flags, 0);
+    if (g_only) {
+        uint32_t len_src = 0;
+        uint32_t *g_src = fast_g_obj_get_g(p_src, 0, &len_src);
+        if (g_src == NULL) goto failure;
+        for (uint32_t i = 0; i < len_src; ++i) p_gobj->g[i] = p_src->g[i];
+        p_gobj->len_g = len_src;
+        p_gobj->len_g_reduced = 0;
+        p_gobj->len_g_mat = -1;
+        new_flags = FLAG_G;
+        if (p_gobj->len_g <= MM_FAST_MAXLEN_G_RED) new_flags |= FLAG_SHORT;
+        atomic_store(p_flags, new_flags);
+        return 0;
+    }
+    if (src_flags & FLAG_MAT) {
+        if (mm_op_fast_copy_data(&p_src->mat, &p_gobj->mat) < 0) goto failure;
+        new_flags |= FLAG_MAT;
+        if (src_flags & FLAG_REDUCED) p_gobj->len_g_mat = p_gobj->len_g_reduced;
+        else if (src_flags & FLAG_G) p_gobj->len_g_mat = p_gobj->len_g;
+        else p_gobj->len_g_mat = 0;
+    } 
+    if (src_flags & FLAG_REDUCED) {
+        for (uint32_t i = 0; i < p_gobj->len_g_reduced; ++i) {
+             p_gobj->g_reduced[i] = p_src->g_reduced[i];
+        }
+        p_gobj->len_g_reduced = p_src->len_g_reduced;
+        p_gobj->len_g = 0;
+        new_flags |= FLAG_REDUCED | FLAG_SHORT | FLAG_G;
+    } else if (src_flags & FLAG_G)  {
+        for (uint32_t i = 0; i < p_gobj->len_g; ++i) {
+             p_gobj->g[i] = p_src->g[i];
+        }
+        p_gobj->len_g_reduced = 0;
+        p_gobj->len_g = p_src->len_g;
+        new_flags |= FLAG_G;
+        if (p_gobj->len_g <= MM_FAST_MAXLEN_G_RED) new_flags |= FLAG_SHORT;
+    }
+    atomic_store(p_flags, new_flags);
+    return 0;
+
+failure:    
+    atomic_store(p_flags, FLAG_ERROR | FLAG_FROZEN);
+    return -1;    
+
+}
+
+
+
+
 
 
 /**********************************************************************
@@ -588,7 +670,7 @@ int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
             p_gobj->g[i] = p_gobj->g_reduced[i];
         }
         p_gobj->len_g = p_gobj->len_g_reduced;
-        p_gobj->len_g_mat = (flags & FLAG_MAT) ? p_gobj->len_g : 0;
+        p_gobj->len_g_mat = (flags & FLAG_MAT) ? p_gobj->len_g : -1;
     } else if ((flags & FLAG_G) == 0) goto failure;
 
     // Append g**e to object
@@ -676,73 +758,6 @@ failure:
 
 
 
-/**********************************************************************
-* Copy data of object of type ``mm_fast_g_type``
-**********************************************************************/
-
-
-/**
-   @brief Copy data of object of type ``mm_fast_g_type``
-
-   Here the object of type ``mm_fast_g_type`` referred by ``p_gobj``
-   must be mutable. The function copies the object referred by ``p_src``
-   to the object  referred by ``p_gobj``. If ``g_only`` is nonzero
-   then only a (short word) ``g`` is copied.
- 
-   The function return 0 in case of success and a negative value in
-   case of error.
-*/
-// %%EXPORT p
-int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t g_only)
-{
-    if (p_gobj == NULL || p_src == NULL) return -1;
-    _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
-    uint32_t flags = get_flags(p_gobj);
-    uint32_t src_flags = get_flags(p_src);
-    if (flags & (FLAG_ERROR | FLAG_FROZEN)) goto failure;
-    atomic_store(p_flags, 0);
-    if (g_only) {
-        uint32_t len_src = 0;
-        uint32_t *g_src = fast_g_obj_get_g(p_src, 0, &len_src);
-        if (g_src == NULL) goto failure;
-        for (uint32_t i = 0; i < len_src; ++i) p_gobj->g[i] = p_src->g[i];
-        p_gobj->len_g = len_src;
-        p_gobj->len_g_reduced = p_gobj->len_g_mat = 0;
-        flags = FLAG_G;
-        if (p_gobj->len_g <= MM_FAST_MAXLEN_G_RED) flags |= FLAG_SHORT;
-        atomic_store(p_flags, flags);
-        return 0;
-    }
-    uint32_t new_flags = 0;
-    if (src_flags & FLAG_MAT) {
-        if (mm_op_fast_copy_data(&p_src->mat, &p_gobj->mat) < 0) goto failure;
-        new_flags |= FLAG_MAT; 
-    }
-    if (src_flags & FLAG_REDUCED) {
-        for (uint32_t i = 0; i < p_gobj->len_g_reduced; ++i) {
-             p_gobj->g_reduced[i] = p_src->g_reduced[i];
-        }
-        p_gobj->len_g_reduced = p_src->len_g_reduced;
-        p_gobj->len_g = 0;
-        flags |= FLAG_REDUCED | FLAG_SHORT | FLAG_G;
-    } else if (src_flags & FLAG_G)  {
-        for (uint32_t i = 0; i < p_gobj->len_g; ++i) {
-             p_gobj->g[i] = p_src->g[i];
-        }
-        p_gobj->len_g_reduced = 0;
-        p_gobj->len_g = p_src->len_g;
-        p_gobj->len_g_mat = p_src->len_g_mat;
-        flags = FLAG_G;
-        if (p_gobj->len_g <= MM_FAST_MAXLEN_G_RED) flags |= FLAG_SHORT;
-        return 0;
-    }
-    atomic_store(p_flags, flags);
-
-failure:    
-    atomic_store(p_flags, FLAG_ERROR | FLAG_FROZEN);
-    return -1;    
-
-}
 
 
 /**
@@ -817,14 +832,15 @@ int32_t fast_g_obj_setpower(mm_fast_g_type *p_gobj, int64_t e)
         e >>= 2;
     }
     if (e < 0) {
-        uint32_t g_len = 0;
+        uint32_t g_len = 0, i;
         uint32_t *p_g = fast_g_obj_get_g(p_gobj, 0, &g_len);
         status = -1;
         if (p_g == NULL) goto failure;
         atomic_store(p_flags, 0);  // paranoia
-        memmove(p_gobj->g, p_g, g_len * sizeof(uint32_t));
+        for (i = 0; i < g_len; ++i) p_gobj->g[i] = p_g[i];
         mm_group_invert_word(p_gobj->g, g_len);
-        p_gobj->len_g_mat = p_gobj->len_g_reduced = 0;
+        p_gobj->len_g_mat = -1;
+        p_gobj->len_g_reduced = 0;
         p_gobj->len_g = g_len;
         atomic_store(p_flags, FLAG_G | FLAG_SHORT | FLAG_STABLE);
         e = -e;
