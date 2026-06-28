@@ -199,6 +199,7 @@ int32_t mm_op_fast_dealloc_work(mmv_fast_matrix_type *pm)
                      mm_op_fast_buffer_free(p_buf[1], sizeof(mmv_fast_type));
                      p_buf[1] = NULL;
                  }
+                 return 0;
              }
          default:
              return 0;
@@ -231,6 +232,7 @@ int32_t mm_op_fast_copy_data(mmv_fast_matrix_type *pm_src, mmv_fast_matrix_type 
                  mmv_fast_type *pdest = pdest_buf[0];
                  ASSUME_ALIGNED(pdest, 64);
                  copy_mode1(psrc, pdest);
+                 return 0;
              }
          default:
              return -1;

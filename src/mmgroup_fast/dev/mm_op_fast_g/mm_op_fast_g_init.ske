@@ -47,6 +47,8 @@ ALIGNED(64) struct mm_fast_g_type {
     uint32_t len_g_reduced;
     uint32_t g_reduced[MM_FAST_MAXLEN_G_RED];
     uint64_t int_g[4];
+    int64_t substatus;  // error status from lower level
+    int64_t sub_op;     // operation where erro occured
 };
 
 
@@ -98,13 +100,22 @@ get_flags(mm_fast_g_type *p_gobj)
 /**
    @brief Get flags of object of type ``mm_fast_g_type``
 
-   The function returns the flags of an object of
+   The function returns the status of an object of
    type ``mm_fast_g_type``. This is a function for debugging.
+   ``status`` in an array of 3 integers where the following
+   components of ``p_gobj`` will be stored:
+
+   flags,  sub_op, substatus.
 */
 // %%EXPORT p
-uint64_t fast_g_obj_get_flags(mm_fast_g_type *p_gobj)
+void fast_g_obj_get_status(mm_fast_g_type *p_gobj, int64_t *p_status)
 {
-     return (p_gobj != NULL) ? get_flags(p_gobj) : 0;
+     p_status[0] = 0;
+     p_status[1] = p_status[2] = -1;
+     if (p_gobj == NULL) return;
+     p_status[0] = get_flags(p_gobj);
+     p_status[1] = p_gobj->sub_op;
+     p_status[2] = p_gobj->substatus;
 }
 
 
@@ -166,6 +177,27 @@ release_write_access(mm_fast_g_type *p_gobj, uint64_t old_flags, uint64_t new_fl
     return new_flags;    
 }
 
+
+/**
+   @brief Set an error in object of type ``mm_fast_g_type``
+
+   Here ``op`` describes a function where the error occures
+   and ``status`` describes an error at a low-level function.
+   The function returns the flags after settng the errro
+*/
+static inline int64_t
+set_error(mm_fast_g_type *p_gobj, int64_t op, int64_t status)
+{
+    _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
+    uint64_t flags = atomic_fetch_or(p_flags, FLAG_ERROR | FLAG_FROZEN);
+    if ((flags & FLAG_ERROR) == 0) {
+        p_gobj->sub_op = op;
+        p_gobj->substatus = status;        
+    }
+    return flags | FLAG_ERROR | FLAG_FROZEN;
+}
+
+
 /// @endcond
 
 
@@ -200,6 +232,7 @@ mm_fast_g_type *fast_g_obj_new()
          FLAG_G | FLAG_SHORT | FLAG_REDUCED | FLAG_STABLE);
     p_gobj->len_g = p_gobj->len_g_reduced = 0;
     p_gobj->len_g_mat = -1;
+    p_gobj->sub_op = p_gobj->substatus = 0;
     return p_gobj;
 }
 
@@ -274,8 +307,9 @@ void fast_g_obj_freeze(mm_fast_g_type *p_gobj)
 static int64_t compute_mat(mm_fast_g_type *p_gobj, int64_t flags)
 {
     uint32_t g_start, g_end, *pg;
+    int64_t status = -1;
     if (flags & FLAG_MAT) return flags;
-    if (p_gobj->len_g_mat < 0) {
+    if (1 || p_gobj->len_g_mat < 0) {
          mm_axis3_fast_load_order_vector(&p_gobj->mat);
          p_gobj->len_g_mat = 0;
     }
@@ -285,11 +319,12 @@ static int64_t compute_mat(mm_fast_g_type *p_gobj, int64_t flags)
     } else if (flags & FLAG_G) {
          pg = p_gobj->g;
          g_end = p_gobj->len_g;
-         if (p_gobj->len_g_mat > p_gobj->len_g) return flags | FLAG_ERROR;  
+         if (p_gobj->len_g_mat > p_gobj->len_g) 
+              return set_error(p_gobj, 1001, status);  
          g_start = p_gobj->len_g_mat;
-    } else return flags | FLAG_ERROR; 
-    if (mm_op_fast_word(&p_gobj->mat, pg + g_start, g_end - g_start, 1) < 0)
-              return flags | FLAG_ERROR; 
+    } else return set_error(p_gobj, 1002, status); 
+    status = mm_op_fast_word(&p_gobj->mat, pg + g_start, g_end - g_start, 1);
+    if (status < 0) return set_error(p_gobj, 1003, status); 
     p_gobj->len_g_mat = g_end; 
     return flags | FLAG_MAT;
 }
@@ -311,10 +346,10 @@ static int64_t compute_mat(mm_fast_g_type *p_gobj, int64_t flags)
 static int64_t compute_reduced(mm_fast_g_type *p_gobj, int64_t flags)
 {
     if (flags & FLAG_REDUCED) return flags;
-    if ((flags & FLAG_MAT) == 0) return flags | FLAG_ERROR;
+    if ((flags & FLAG_MAT) == 0) return set_error(p_gobj, 2001, -1);
     int32_t len = mm_axis3_fast_reduce_v_g(&p_gobj->mat, p_gobj->g_reduced,
         MM_FAST_MAXLEN_G_RED, 1); 
-    if (len < 0) return flags | FLAG_ERROR;
+    if (len < 0) return set_error(p_gobj, 2002, len);
     p_gobj->len_g_reduced = len;
     p_gobj->len_g = 0;
     return flags | (FLAG_REDUCED | FLAG_SHORT | FLAG_G);
@@ -333,20 +368,22 @@ static int64_t compute_reduced(mm_fast_g_type *p_gobj, int64_t flags)
 */
 static int64_t compute_fast_int(mm_fast_g_type *p_gobj, int64_t flags)
 {
+    int64_t status = -1, op = 3003;
     if (flags & FLAG_ASINT) return flags;
-    if ((flags & FLAG_REDUCED) == 0) return flags | FLAG_ERROR;
+    if ((flags & FLAG_REDUCED) == 0) return set_error(p_gobj, 3001, -1);
     p_gobj->len_g = 0;
     gt_word_type *p_gt = gt_word_alloc(1, &p_gobj->g, sizeof(&p_gobj->g));
-    if (p_gt == NULL) return flags | FLAG_ERROR;
-    if (gt_word_append(p_gt, p_gobj->g_reduced, p_gobj->len_g_reduced) < 0)
-        goto failure;
-    if (gt_word_compress(p_gt, p_gobj->int_g)) goto failure;
+    if (p_gt == NULL) return set_error(p_gobj, 3002, -2);
+    status = gt_word_append(p_gt, p_gobj->g_reduced, p_gobj->len_g_reduced);
+    if (status < 0)  goto failure;
+    op = 3004;
+    status = gt_word_compress(p_gt, p_gobj->int_g);
+    if (status < 0)  goto failure;
     return flags | FLAG_ASINT;
 
 failure:
     gt_word_free(p_gt);
-    return flags | FLAG_ERROR;
-
+    return set_error(p_gobj, op, status);
 }
 
 
@@ -365,13 +402,16 @@ int64_t augment(mm_fast_g_type *p_gobj, uint64_t requested)
 {
     requested &= DATA_FLAGS;
     uint64_t flags = get_write_access(p_gobj, requested);
+    uint64_t new_flags = flags;
     if ((flags & requested) == requested) {
         if ((flags & FLAG_STABLE) == 0) // we are pedantic here
             return release_write_access(p_gobj, flags, flags);
         return flags;
     }
-    if ((flags | requested) & FLAG_ERROR)
-        return  release_write_access(p_gobj, flags, flags | FLAG_ERROR);
+    if ((flags | requested) & FLAG_ERROR) {
+        new_flags = set_error(p_gobj, 5001, -1);
+        return  release_write_access(p_gobj, flags, new_flags);
+    }
 
     if (requested & ~flags & FLAG_ASINT) requested |= FLAG_REDUCED;
     if (requested & ~flags & FLAG_G) requested |= FLAG_REDUCED;
@@ -380,7 +420,6 @@ int64_t augment(mm_fast_g_type *p_gobj, uint64_t requested)
             requested |= FLAG_REDUCED;
     }
     if (requested & !flags & FLAG_REDUCED) requested |= FLAG_MAT;
-    uint64_t new_flags = flags;
     if (requested & ~new_flags & FLAG_MAT)
         new_flags = compute_mat(p_gobj, new_flags);
     if (new_flags & FLAG_ERROR)
@@ -399,6 +438,29 @@ int64_t augment(mm_fast_g_type *p_gobj, uint64_t requested)
 
 
 /// @endcond
+
+
+/**
+   @brief Augment attributes of an object of type ``mm_fast_g_type``
+
+   Depending on the ``requested`` flags, the function computes the
+   attributes of the object ``p_gbj`` of type ``mm_fast_g_type``.
+   This computation is thread safe if the object is frozen.
+   The function returns the flags of the augmented object.
+   Flags set in argument ``kill`` are cleared before augmenting.
+   This function is for debugging.
+*/
+// %%EXPORT p
+int64_t fast_g_obj_augment(mm_fast_g_type *p_gobj, uint64_t requested, uint64_t kill)
+{
+    if (kill) {
+        uint64_t flags = get_write_access(p_gobj, 0);
+        release_write_access(p_gobj, flags, flags & ~(kill & 0xff));
+    }
+    return  augment(p_gobj, requested);
+}
+
+
 
 
 /**********************************************************************
@@ -653,7 +715,7 @@ int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
     // If total length does not fit in to buffer for unreduced word,
     // then compute component p_gobj->mat only. 
     if ((flags & FLAG_G) == 0 ||
-        (llen_g + lg) > MM_FAST_MAXLEN_G_RED || abs(e) > 4) {
+        (llen_g + lg) > MM_FAST_MAXLEN_G || abs(e) > 4) {
         flags = augment(p_gobj, FLAG_MAT);
         if (flags & FLAG_ERROR || (flags & FLAG_MAT) == 0) goto failure;
         atomic_store(p_flags, 0);  // paranoia
@@ -670,7 +732,7 @@ int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
             p_gobj->g[i] = p_gobj->g_reduced[i];
         }
         p_gobj->len_g = p_gobj->len_g_reduced;
-        p_gobj->len_g_mat = (flags & FLAG_MAT) ? p_gobj->len_g : -1;
+        if (flags & FLAG_MAT) p_gobj->len_g_mat = p_gobj->len_g;
     } else if ((flags & FLAG_G) == 0) goto failure;
 
     // Append g**e to object

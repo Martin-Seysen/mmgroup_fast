@@ -9,8 +9,10 @@ cdef class MMOpFastG:
         4: "Could not obtain matrix from MMOpFastG object",
         5: "Could not convert MMOpFastG object to int",
         6: "Could check if MMOpFastG object is neutral element",
+        7: "Internal error in method _augment",
     }
     _MAXEXP = 1 << 62
+    FLAG_ERROR = 0x20
     cdef mm_fast_g_type *ptr
 
     def __cinit__(self, *args, **kwds):
@@ -28,8 +30,11 @@ cdef class MMOpFastG:
         pass
 
     def _display_flags(self):
-        flags = fast_g_obj_get_flags(self.ptr)
-        print("Flags of MMOpFastG object are: 0x%016x" % flags)
+        cdef int64_t status[3]
+        fast_g_obj_get_status(self.ptr, status)
+        print("Flags of MMOpFastG object are: 0x%016x" % status[0])
+        if ((status[0] & self.FLAG_ERROR) or status[1] or status[2]):
+            print("Status: op = %d, err = %d" % (status[1], status[2]))       
 
     def _chk(self, result, errno):
         if result < 0:
@@ -60,14 +65,21 @@ cdef class MMOpFastG:
     def mmdata(self):
         return self.g(1)
 
+    def _augment(self, int64_t flags, int64_t kill=0):
+        flags = fast_g_obj_augment(self.ptr, flags, kill)
+        if flags & self.FLAG_ERROR:
+            self._display_flags()
+            raise ValueError(self.ERRORS[7])
+        return flags
+
+
     def mat(self):
         cdef mmv_fast_matrix_type *pmat = fast_g_obj_get_mat(self.ptr)
         if pmat == NULL:
             self._chk(-1, 4)
         m = MMOpFastMatrix(3, 4, 1)
         cdef mmv_fast_matrix_type *pc = &m.m
-        cdef int32_t status = mm_op_fast_copy_data(pmat, pc)
-        assert status >= 0
+        self._chk(mm_op_fast_copy_data(pmat, pc), 2)
         return m
 
     def as_int(self):
