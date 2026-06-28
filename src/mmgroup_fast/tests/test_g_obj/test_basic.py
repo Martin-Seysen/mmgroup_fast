@@ -15,8 +15,8 @@ MMV3 = MMV(3)
 @pytest.mark.mm_op
 def test_basis():
     for i in range(1):
-        a = MMOpFastG()
-        print("aug1", hex(a._augment(7, 0x8)))
-        #print("aug2", hex(a._augment(8)))
-        #print(a)
+        a0 = MM0('r')
+        a = MMOpFastG(a0)
+        print("\nA test element is: ", a)
+        #assert MM(a0) == MM('a', a.mmdata) # This fails!!!
         del a

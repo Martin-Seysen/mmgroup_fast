@@ -27,7 +27,6 @@ cdef class MMOpFastG:
     def __init__(self, *g):
         if len(g):
             self.mulexp(MM0(*g))
-        pass
 
     def _display_flags(self):
         cdef int64_t status[3]
@@ -81,6 +80,10 @@ cdef class MMOpFastG:
         cdef mmv_fast_matrix_type *pc = &m.m
         self._chk(mm_op_fast_copy_data(pmat, pc), 2)
         return m
+
+    def mmv3(self, i):
+        return self.mat().row_as_mmv(i)
+
 
     def as_int(self):
         """Warning: not compatible to method as_int of class MM"""
