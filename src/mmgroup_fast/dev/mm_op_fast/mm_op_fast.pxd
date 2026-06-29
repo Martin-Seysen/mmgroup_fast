@@ -37,6 +37,7 @@ cdef extern from "mm_op_fast_types.h":
         uint32_t mode;
         uint32_t check_underflow;
         uint32_t current;
+        uint32_t work_refcount;
 
 
 

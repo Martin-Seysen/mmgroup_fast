@@ -113,9 +113,16 @@ cdef class MMOpFastMatrix:
         assert status >= 0
         return cp
 
+    def _display_status(self):
+        print("Status of MMOpFastMatrix object:")
+        print(
+         "  p = %d, nrows = %d, mode = %d, chk_undrfl = %d, refcnt = %d"
+         % (self.m.p, self.m.nrows, self.m.mode, self.m.check_underflow, 
+             self.m.work_refcount))
+
     def set_vstd(self, uint32_t hash = 0):
         cdef int32_t status = mm_axis3_fast_mode1_set_vstd(&self.m, hash)
-        assert status == 0
+        assert status == 0, status
 
               
     def set_row(self, uint32_t i, row):

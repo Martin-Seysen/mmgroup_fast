@@ -109,6 +109,7 @@ def timings_fast_mul_g_mm(ncases = 100):
 
 
 
+
 def timings_std_mul_reduce_mm(ncases = 100):
     ncases = max(10, min(ncases,2000))
     samples = ReduceSamples()
@@ -147,6 +148,18 @@ def display_tags(n, n_tags):
     print("Tags per element:",  ", ".join(freq[1:7]))  
 
 
+
+@pytest.mark.bench
+@pytest.mark.mm_amod3
+def test_fast_reduce_mm(ncases = 5):
+    for i in range(ncases):
+        g = MM0('r', 16 if i < 2 else 7)
+        #print(g)
+        m = std_matrix()
+        m.mul_exp(g)
+        a = m.reduce_v_g(check = i & 1)
+        g0 = MM('a', np.concatenate((g.mmdata, a)))
+        assert g0 == MM()
 
 
 @pytest.mark.bench

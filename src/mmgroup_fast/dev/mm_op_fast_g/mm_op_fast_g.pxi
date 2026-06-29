@@ -29,11 +29,11 @@ cdef class MMOpFastG:
             self.mulexp(MM0(*g))
 
     def _display_flags(self):
-        cdef int64_t status[3]
+        cdef int64_t status[5]
         fast_g_obj_get_status(self.ptr, status)
         print("Flags of MMOpFastG object are: 0x%016x" % status[0])
-        if ((status[0] & self.FLAG_ERROR) or status[1] or status[2]):
-            print("Status: op = %d, err = %d" % (status[1], status[2]))       
+        print("  Status: op = %d, err = %d" % (status[1], status[2]))       
+        print("  Lengths: g: %d, reduced: %d" % (status[3], status[4]))       
 
     def _chk(self, result, errno):
         if result < 0:
@@ -53,11 +53,12 @@ cdef class MMOpFastG:
     def g(self, uint32_t reduced = False):
         cdef uint32_t *my_g
         cdef uint32_t my_len, i
-        my_g = fast_g_obj_get_g(self.ptr, reduced,&my_len)
+        my_g = fast_g_obj_get_g(self.ptr, reduced, &my_len)
         if  my_g == NULL:
             self._chk(-1, 3)
         arr = np.empty(my_len, dtype=np.uint32)
-        memcpy(<void*>arr.data, <void*>my_g, my_len * sizeof(uint32_t))
+        for i in range(my_len):
+            arr.data[i] = my_g[i]
         return arr
 
     @property
@@ -94,12 +95,12 @@ cdef class MMOpFastG:
         return (int(a[0]) + (int(a[1]) << 64) +
              (int(a[2]) << 128) + (int(a[3]) << 192))
 
-    def neutral(self, uint32_t reduce = True):
+    def chk_neutral(self, uint32_t reduce = True):
         """Fast check if object is the neutral element
 
         Return 1 if not neutral, 0 if neutral, -1 if unknown.
-        if "reduce" is set, the result will always be known,
-        otherwise a faster, but less reliable check is made.
+        if "reduce" is set, the result will always be known.
+        Otherwise a faster, but less reliable check is made.
         """
         cdef int32_t n = fast_g_obj_nonneutral(self.ptr, reduce)
         if -1 <= n <= 1:

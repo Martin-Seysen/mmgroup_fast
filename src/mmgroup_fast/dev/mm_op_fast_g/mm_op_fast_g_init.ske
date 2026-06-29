@@ -101,20 +101,23 @@ get_flags(mm_fast_g_type *p_gobj)
 
    The function returns the status of an object of
    type ``mm_fast_g_type``. This is a function for debugging.
-   ``status`` in an array of 3 integers where the following
+   ``status`` in an array of 5 integers where the following
    components of ``p_gobj`` will be stored:
 
-   flags,  sub_op, substatus.
+   flags,  sub_op, substatus, len_g, len_g_reduced .
 */
 // %%EXPORT p
 void fast_g_obj_get_status(mm_fast_g_type *p_gobj, int64_t *p_status)
 {
-     p_status[0] = 0;
-     p_status[1] = p_status[2] = -1;
-     if (p_gobj == NULL) return;
+     if (p_gobj == NULL) {
+         memset(p_status, 0, 5 * sizeof(uint32_t));
+         return;
+     }
      p_status[0] = get_flags(p_gobj);
      p_status[1] = p_gobj->sub_op;
      p_status[2] = p_gobj->substatus;
+     p_status[3] = p_gobj->len_g;
+     p_status[4] = p_gobj->len_g_reduced;
 }
 
 
@@ -194,6 +197,16 @@ set_error(mm_fast_g_type *p_gobj, int64_t op, int64_t status)
         p_gobj->substatus = status;        
     }
     return flags | FLAG_ERROR | FLAG_FROZEN;
+}
+
+/**
+   @brief same as set_error(), but returns -1
+*/
+static inline int32_t
+set_error_ret(mm_fast_g_type *p_gobj, int64_t op, int64_t status)
+{
+    set_error(p_gobj, op, status);
+    return -1;
 }
 
 
@@ -341,6 +354,8 @@ static int64_t compute_reduced(mm_fast_g_type *p_gobj, int64_t flags)
     int32_t len = mm_axis3_fast_reduce_v_g(&p_gobj->mat, p_gobj->g_reduced,
         MM_FAST_MAXLEN_G_RED, 1); 
     if (len < 0) return set_error(p_gobj, 2002, len);
+    if (len > MM_FAST_MAXLEN_G_RED) return set_error(p_gobj, 2003, len);
+    mm_group_invert_word(p_gobj->g_reduced, len);
     p_gobj->len_g_reduced = len;
     p_gobj->len_g = 0;
     return flags | (FLAG_REDUCED | FLAG_SHORT | FLAG_G);
@@ -615,7 +630,9 @@ failure:
 int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t g_only)
 {
     int64_t op = 21001, status = -1;
-    if (p_gobj == NULL || p_src == NULL) return -1;
+    if (p_gobj == NULL) return -1;
+    if (p_src == NULL) goto failure;
+    ++op;
     _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
     uint32_t flags = get_flags(p_gobj);
     uint32_t new_flags = 0;
@@ -635,8 +652,8 @@ int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t 
         return 0;
     }
     if (p_gobj == p_src) return 0;
+    ++op;
     if (src_flags & FLAG_MAT) {
-        op = 21001;
         status = mm_op_fast_copy_data(&p_src->mat, &p_gobj->mat);
         if (status < 0) goto failure;
         new_flags |= FLAG_MAT;
@@ -732,8 +749,8 @@ int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
             }
             p_gobj->len_g = lg;
             p_gobj->len_g_reduced = 0;
-            flags &= ~FLAG_REDUCED;
         }
+        flags &= ~FLAG_REDUCED;
         // Append g**e to object
         uint32_t *p_start = p_gobj->g + lg;
         for (uint32_t i = 0; i < len_g; ++i) p_start[i] = g[i];
@@ -763,7 +780,6 @@ int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
     return 0;
   
 failure:    
-    atomic_store(p_flags, flags);
     set_error(p_gobj, op, status);
     return -1;
 }

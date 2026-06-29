@@ -242,6 +242,37 @@ int32_t mm_op_fast_copy_data(mmv_fast_matrix_type *pm_src, mmv_fast_matrix_type 
 
 
 /**
+   @brief zero an existing matrix of type mmv_fast_matrix_type
+
+   The function zeros the entries of matrix ``pm_dest``.
+*/
+// %%EXPORT p
+int32_t mm_op_fast_zero_data(mmv_fast_matrix_type *pm)
+{
+     if (pm == NULL) return -1;
+     switch (pm->mode) {
+         case 1:
+             {
+                 mmv_fast_type **p_buf = pm->p_v.p_vb, *ptr;
+                 if (pm->p != 3 ||  pm->nrows > 4) return -1;
+                 pm->current = 0;
+                 ptr = p_buf[0];
+                 ASSUME_ALIGNED(ptr, 64);
+                 zero_mode1(ptr);
+                 return 0;
+             }
+         default:
+             return -1;
+     }
+}
+
+
+
+
+
+
+
+/**
    @brief Yet to be documented!
 */
 // %%EXPORT p
