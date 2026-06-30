@@ -29,6 +29,7 @@ def hex_array(text, arr):
 @pytest.mark.mm_op
 def test_basis(verbose = 0):
     data = [
+        (str(MM0('r', 14)),),
         (),  
        # ('x',2),
        # ([('t',1), ('y',2), ('t',1)],),
@@ -44,10 +45,12 @@ def test_basis(verbose = 0):
             print("\nTest", n+1)
             print("Test element is: ", a0)
             print("Test element has length", len(a0.mmdata))
-        assert MM('a', a.g(0)) == MM(a0)
-        mat_g = a.mat()
+            a._display_flags()
+        assert MM('a', a.copy().g(0)) == MM(a0)
+        mat_g = a.copy().mat()
         assert isinstance(mat_g, MMOpFastMatrix)
         if verbose:
+            # a._display_flags()
             mat_g._display_status()
         mat_g1 = MMOpFastMatrix(3,4,1)
         mat_g1.set_vstd(1)
@@ -56,6 +59,7 @@ def test_basis(verbose = 0):
         g1_neutral = MM('a', np.concatenate((a0.mmdata, g1i_red)))
         assert g1_neutral == MM()
         if verbose:
+            a._display_flags()
             print("g1_inv =", MM0('a',g1i_red)) 
             print("g_inv =", MM0('a', mat_g.copy().reduce_v_g())) 
         

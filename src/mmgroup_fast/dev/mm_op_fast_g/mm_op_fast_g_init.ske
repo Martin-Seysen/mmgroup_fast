@@ -659,20 +659,27 @@ int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t 
         new_flags |= FLAG_MAT;
     } 
     if (src_flags & FLAG_REDUCED) {
-        for (uint32_t i = 0; i < p_gobj->len_g_reduced; ++i) {
+        for (uint32_t i = 0; i < p_src->len_g_reduced; ++i) {
              p_gobj->g_reduced[i] = p_src->g_reduced[i];
         }
         p_gobj->len_g_reduced = p_src->len_g_reduced;
         p_gobj->len_g = 0;
         new_flags |= FLAG_REDUCED | FLAG_SHORT | FLAG_G;
     } else if (src_flags & FLAG_G)  {
-        for (uint32_t i = 0; i < p_gobj->len_g; ++i) {
+        for (uint32_t i = 0; i < p_src->len_g; ++i) {
              p_gobj->g[i] = p_src->g[i];
         }
         p_gobj->len_g_reduced = 0;
         p_gobj->len_g = p_src->len_g;
         new_flags |= FLAG_G;
         if (p_gobj->len_g <= MM_FAST_MAXLEN_G_RED) new_flags |= FLAG_SHORT;
+    } else {
+        ++op; goto failure;
+    }
+    if (src_flags & FLAG_ASINT) {
+        uint32_t i;
+        for (i = 0; i < 4; ++i) p_gobj->int_g[i] = p_src->int_g[i];
+        new_flags |= FLAG_ASINT;
     }
     atomic_store(p_flags, new_flags);
     return 0;
