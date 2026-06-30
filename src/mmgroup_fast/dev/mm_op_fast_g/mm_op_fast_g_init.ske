@@ -713,19 +713,19 @@ failure:
 */
 int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
 {
-    int64_t op = 31001, status = -1;
     if (p_gobj == NULL) return -1;
     _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
     uint32_t flags = get_flags(p_gobj);
     if (e == 0 || len_g == 0) return 0;  
-    if (flags & (FLAG_ERROR | FLAG_FROZEN)) goto failure;
+    if (flags & (FLAG_ERROR | FLAG_FROZEN))
+         return set_error(p_gobj, 31001, -1);
 
     // Compute No of words of of *p_gobj in lg, and |e| * len(g) in llen_g, 
     // abort if |e| * len(g) to be multiplied is too large
     int64_t llen_g = e;
     llen_g = (int64_t)len_g * (llen_g > 0 ? llen_g : -llen_g);
-    op = 31002;
-    if ((uint64_t)(abs(llen_g)) > 0x10000LL) goto failure;
+    if ((uint64_t)(abs(llen_g)) > 0x10000LL) 
+        return set_error(p_gobj, 31002, -1);
     uint32_t lg = flags & FLAG_REDUCED
                 ? p_gobj->len_g_reduced : p_gobj->len_g;
 
@@ -733,16 +733,15 @@ int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
     if ((flags & FLAG_G) == 0 || (llen_g + lg) > MM_FAST_MAXLEN_G 
        || abs(e) > 4 ) {
         flags = augment(p_gobj, FLAG_MAT);
-        op = 31003;
-        if ((flags  & FLAG_MAT) == 0 || (flags & FLAG_ERROR)) goto failure;
+        if ((flags  & FLAG_MAT) == 0 || (flags & FLAG_ERROR))
+            return set_error(p_gobj, 31003, -1);
     }
 
     atomic_store(p_flags, 0);  // paranoia
     // Multiply component p_gobj->mat by g**e if present
     if (flags  & FLAG_MAT) {
-        op = 31004;
-        status = mm_op_fast_word(&p_gobj->mat, g, len_g, e);
-        if (status < 0) goto failure;
+        uint32_t status = mm_op_fast_word(&p_gobj->mat, g, len_g, e);
+        if (status < 0) return set_error(p_gobj, 31004, status);
     } 
 
     uint64_t maxlen = (flags  & FLAG_MAT) ? MM_FAST_MAXLEN_G_RED
@@ -781,14 +780,10 @@ int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
         p_gobj->len_g = p_gobj->len_g_reduced = 0;
         flags &= ~(FLAG_REDUCED | FLAG_SHORT | FLAG_G);
     }
-    op = 31009; status = -1;
-    if ((flags & (FLAG_G | FLAG_MAT)) == 0) goto failure;
+    if ((flags & (FLAG_G | FLAG_MAT)) == 0) 
+        return set_error(p_gobj, 31009, -1);
     atomic_store(p_flags, flags);
     return 0;
-  
-failure:    
-    set_error(p_gobj, op, status);
-    return -1;
 }
 
 
@@ -809,10 +804,7 @@ mulexp_obj(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int32_t e)
 {
     if (p_gobj == NULL) return -1;
     if (e == 0) return 0;
-    if (p_src == NULL) {
-        set_error(p_gobj, 31021, -1);
-        return -1;
-    }
+    if (p_src == NULL) return set_error_ret(p_gobj, 31021, -1);
     if (e > 0 && fast_g_obj_nonneutral(p_gobj, 0) == 0) {
         if (fast_g_obj_copy(p_gobj, p_src, 0) < 0) return -1;
         e -= 1;
@@ -820,10 +812,7 @@ mulexp_obj(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int32_t e)
     }
     uint32_t len_g;
     uint32_t *g = fast_g_obj_get_g(p_src, 0, &len_g);
-    if (g == NULL) {
-        set_error(p_gobj, 31022, -1);
-        return -1;
-    }
+    if (g == NULL) return set_error_ret(p_gobj, 31022, -1);
     return mulexp(p_gobj, g, len_g, e);
 }
 
@@ -1020,21 +1009,16 @@ int32_t fast_g_obj_mulexp_obj(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int
 {
     if (p_gobj == NULL) return -1;
     if (e == 0) return 0;  
-    if (p_src == NULL) return -1;
+    if (p_src == NULL) return set_error(p_gobj, 34001, -1);
 
     _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
     uint32_t flags = get_flags(p_gobj);
 
-
-    if (flags & (FLAG_ERROR | FLAG_FROZEN)) goto failure;
+    if (flags & (FLAG_ERROR | FLAG_FROZEN))
+        set_error(p_gobj, 34002, -1);
     uint32_t len_src = 0;
     uint32_t *g_src = fast_g_obj_get_g(p_src, 0, &len_src);
     return fast_g_obj_mulexp(p_gobj, g_src, len_src, e);
-
-failure:
-    atomic_store(p_flags, FLAG_ERROR | FLAG_FROZEN);
-    return -1;    
-
 }
 
 
