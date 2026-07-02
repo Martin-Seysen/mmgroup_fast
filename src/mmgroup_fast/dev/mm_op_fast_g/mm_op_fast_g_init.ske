@@ -185,13 +185,15 @@ release_write_access(mm_fast_g_type *p_gobj, uint64_t old_flags, uint64_t new_fl
 
    Here ``op`` describes a function where the error occures
    and ``status`` describes an error at a low-level function.
-   The function returns the flags after settng the errro
+   The function returns the flags after settnig the error.
 */
 static inline int64_t
 set_error(mm_fast_g_type *p_gobj, int64_t op, int64_t status)
 {
-    _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
-    uint64_t flags = atomic_fetch_or(p_flags, FLAG_ERROR | FLAG_FROZEN);
+    if (p_gobj == NULL) return FLAG_ERROR | FLAG_FROZEN;
+    _Atomic(uint64_t) *p_flags =  get_atomic_p_flags(p_gobj);
+    uint64_t flags = atomic_fetch_or(
+        p_flags, FLAG_ERROR | FLAG_FROZEN);
     if ((flags & FLAG_ERROR) == 0) {
         p_gobj->sub_op = op;
         p_gobj->substatus = status;        
@@ -349,16 +351,30 @@ static int64_t compute_mat(mm_fast_g_type *p_gobj, int64_t flags)
 */
 static int64_t compute_reduced(mm_fast_g_type *p_gobj, int64_t flags)
 {
+    int32_t op = 2001, status = -1, len;
+    mmv_fast_matrix_type mat_copy;
     if (flags & FLAG_REDUCED) return flags;
     if ((flags & FLAG_MAT) == 0) return set_error(p_gobj, 2001, -1);
-    int32_t len = mm_axis3_fast_reduce_v_g(&p_gobj->mat, p_gobj->g_reduced,
+    status = mm_op_fast_init(&mat_copy, 3, 4, 1, 0);
+    if (status < 0) return set_error(p_gobj, 2002, status);
+    op = 2003;
+    // copy of p_gobj->mat is destroyed during reduction
+    status = mm_op_fast_copy_data(&p_gobj->mat, &mat_copy);
+    if (status < 0) goto failure;
+    op = 2004;
+    len = mm_axis3_fast_reduce_v_g(&mat_copy, p_gobj->g_reduced,
         MM_FAST_MAXLEN_G_RED, 1); 
+    mm_op_fast_dealloc(&mat_copy);
     if (len < 0) return set_error(p_gobj, 2002, len);
     if (len > MM_FAST_MAXLEN_G_RED) return set_error(p_gobj, 2003, len);
     mm_group_invert_word(p_gobj->g_reduced, len);
     p_gobj->len_g_reduced = len;
     p_gobj->len_g = 0;
     return flags | (FLAG_REDUCED | FLAG_SHORT | FLAG_G);
+
+failure:
+    mm_op_fast_dealloc(&mat_copy);
+    return  set_error(p_gobj, op, status);
 }
 
 
@@ -424,6 +440,7 @@ int64_t augment(mm_fast_g_type *p_gobj, uint64_t requested)
     if (requested & ~flags & FLAG_SHORT) {
         if ((flags & FLAG_G) == 0 || (p_gobj->len_g > MM_FAST_MAXLEN_G_RED))
             requested |= FLAG_REDUCED;
+        else new_flags |= FLAG_SHORT;
     }
     if (requested & ~flags & FLAG_REDUCED) requested |= FLAG_MAT;
     if (requested & ~new_flags & FLAG_MAT)
@@ -487,21 +504,25 @@ int64_t fast_g_obj_augment(mm_fast_g_type *p_gobj, uint64_t requested, uint64_t 
 // %%EXPORT p
 uint32_t *fast_g_obj_get_g(mm_fast_g_type *p_gobj, uint32_t reduced, uint32_t* p_len)
 {
+    int32_t op = 4001;
     if (p_gobj == NULL) return NULL;
-    uint64_t requested = reduced ? FLAG_REDUCED : FLAG_SHORT; 
+    uint64_t requested = reduced  ? FLAG_REDUCED : FLAG_SHORT; 
     uint64_t flags = augment(p_gobj, requested);
-    if (flags & FLAG_ERROR) return NULL;
+    if (flags & FLAG_ERROR) goto failure;
     if (flags & FLAG_REDUCED) {
-         if (p_len) *p_len = p_gobj->len_g_reduced; 
-         return p_gobj->g_reduced;
+        if (p_len) *p_len = p_gobj->len_g_reduced; 
+        return p_gobj->g_reduced;
     } else if (flags & FLAG_SHORT) {
-         if (reduced) return NULL;
-         if (p_len) *p_len = p_gobj->len_g; 
-         return p_gobj->g;
+        op = 4002;
+        if (reduced) goto failure;
+        if (p_len) *p_len = p_gobj->len_g; 
+        return p_gobj->g;
     } else {
-         set_error(p_gobj, 10001, -1);
-         return NULL;
+        op = 4003;
     }
+failure:
+    set_error(p_gobj, op, -1);
+    return NULL;
 }
 
 
@@ -542,7 +563,10 @@ mmv_fast_matrix_type *fast_g_obj_get_mat(mm_fast_g_type *p_gobj)
 {
     if (p_gobj == NULL) return NULL;
     uint64_t flags = augment(p_gobj, FLAG_MAT);
-    if (flags & FLAG_ERROR || (flags & FLAG_MAT) == 0) return NULL;
+    if (flags & FLAG_ERROR || (flags & FLAG_MAT) == 0) {
+        set_error(p_gobj, 7001, -1);
+        return NULL;
+    }
     return  &p_gobj->mat;
 }
 
@@ -621,7 +645,7 @@ failure:
    Here the object of type ``mm_fast_g_type`` referred by ``p_gobj``
    must be mutable. The function copies the object referred by ``p_src``
    to the object  referred by ``p_gobj``. If ``g_only`` is nonzero
-   then only a (short word) ``g`` is copied.
+   then only a (short, not necessarily reduced) word ``g`` is copied.
  
    The function return 0 in case of success and a negative value in
    case of error.
@@ -629,20 +653,20 @@ failure:
 // %%EXPORT p
 int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t g_only)
 {
-    int64_t op = 21001, status = -1;
+    int64_t status = -1;
     if (p_gobj == NULL) return -1;
-    if (p_src == NULL) goto failure;
-    ++op;
+    if (p_src == NULL) set_error_ret(p_gobj, 21001, -1);
     _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
     uint32_t flags = get_flags(p_gobj);
     uint32_t new_flags = 0;
     uint32_t src_flags = get_flags(p_src);
-    if (flags & (FLAG_ERROR | FLAG_FROZEN)) goto failure;
+    if (flags & (FLAG_ERROR | FLAG_FROZEN))
+         return set_error_ret(p_gobj, 21002, -1);
     if (g_only) {
-        atomic_store(p_flags, 0);
+        atomic_store(p_flags, 0);  // paranoia
         uint32_t len_src = 0;
         uint32_t *g_src = fast_g_obj_get_g(p_src, 0, &len_src);
-        if (g_src == NULL) goto failure;
+        if (g_src == NULL) return set_error_ret(p_gobj, 21002, -1);
         for (uint32_t i = 0; i < len_src; ++i) p_gobj->g[i] = p_src->g[i];
         p_gobj->len_g = len_src;
         p_gobj->len_g_reduced = 0;
@@ -652,42 +676,37 @@ int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t 
         return 0;
     }
     if (p_gobj == p_src) return 0;
-    ++op;
+    atomic_store(p_flags, 0);  // paranoia
     if (src_flags & FLAG_MAT) {
         status = mm_op_fast_copy_data(&p_src->mat, &p_gobj->mat);
-        if (status < 0) goto failure;
+        if (status < 0) return set_error_ret(p_gobj, 21003, status);
         new_flags |= FLAG_MAT;
     } 
     if (src_flags & FLAG_REDUCED) {
         for (uint32_t i = 0; i < p_src->len_g_reduced; ++i) {
-             p_gobj->g_reduced[i] = p_src->g_reduced[i];
+            p_gobj->g_reduced[i] = p_src->g_reduced[i];
         }
         p_gobj->len_g_reduced = p_src->len_g_reduced;
         p_gobj->len_g = 0;
         new_flags |= FLAG_REDUCED | FLAG_SHORT | FLAG_G;
     } else if (src_flags & FLAG_G)  {
         for (uint32_t i = 0; i < p_src->len_g; ++i) {
-             p_gobj->g[i] = p_src->g[i];
+            p_gobj->g[i] = p_src->g[i];
         }
         p_gobj->len_g_reduced = 0;
         p_gobj->len_g = p_src->len_g;
         new_flags |= FLAG_G;
         if (p_gobj->len_g <= MM_FAST_MAXLEN_G_RED) new_flags |= FLAG_SHORT;
-    } else {
-        ++op; goto failure;
-    }
+    } 
     if (src_flags & FLAG_ASINT) {
         uint32_t i;
         for (i = 0; i < 4; ++i) p_gobj->int_g[i] = p_src->int_g[i];
         new_flags |= FLAG_ASINT;
     }
+    if ((flags & (FLAG_G | FLAG_MAT)) == 0) 
+        return set_error_ret(p_gobj, 21009, -1);
     atomic_store(p_flags, new_flags);
-    return 0;
-
-failure:    
-    set_error(p_gobj, op, status);
-    return -1;    
-
+    return 0; 
 }
 
 
@@ -718,15 +737,15 @@ int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
     uint32_t flags = get_flags(p_gobj);
     if (e == 0 || len_g == 0) return 0;  
     if (flags & (FLAG_ERROR | FLAG_FROZEN))
-         return set_error(p_gobj, 31001, -1);
+         return set_error_ret(p_gobj, 31001, -1);
 
     // Compute No of words of of *p_gobj in lg, and |e| * len(g) in llen_g, 
     // abort if |e| * len(g) to be multiplied is too large
     int64_t llen_g = e;
     llen_g = (int64_t)len_g * (llen_g > 0 ? llen_g : -llen_g);
     if ((uint64_t)(abs(llen_g)) > 0x10000LL) 
-        return set_error(p_gobj, 31002, -1);
-    uint32_t lg = flags & FLAG_REDUCED
+        return set_error_ret(p_gobj, 31002, -1);
+    uint32_t lg = (flags & FLAG_REDUCED)
                 ? p_gobj->len_g_reduced : p_gobj->len_g;
 
     // Compute component p_gobj->mat  if needed
@@ -734,17 +753,17 @@ int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
        || abs(e) > 4 ) {
         flags = augment(p_gobj, FLAG_MAT);
         if ((flags  & FLAG_MAT) == 0 || (flags & FLAG_ERROR))
-            return set_error(p_gobj, 31003, -1);
+            return set_error_ret(p_gobj, 31003, -1);
     }
 
     atomic_store(p_flags, 0);  // paranoia
     // Multiply component p_gobj->mat by g**e if present
     if (flags  & FLAG_MAT) {
         uint32_t status = mm_op_fast_word(&p_gobj->mat, g, len_g, e);
-        if (status < 0) return set_error(p_gobj, 31004, status);
+        if (status < 0) return set_error_ret(p_gobj, 31004, status);
     } 
 
-    uint64_t maxlen = (flags  & FLAG_MAT) ? MM_FAST_MAXLEN_G_RED
+    uint64_t maxlen = (flags & FLAG_MAT) ? MM_FAST_MAXLEN_G_RED
                                           : MM_FAST_MAXLEN_G;
     if ((flags & FLAG_G) && (llen_g + lg) <= maxlen) {
         // Then store result also as word of generators 
@@ -781,7 +800,7 @@ int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
         flags &= ~(FLAG_REDUCED | FLAG_SHORT | FLAG_G);
     }
     if ((flags & (FLAG_G | FLAG_MAT)) == 0) 
-        return set_error(p_gobj, 31009, -1);
+        return set_error_ret(p_gobj, 31009, -1);
     atomic_store(p_flags, flags);
     return 0;
 }
@@ -805,15 +824,16 @@ mulexp_obj(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int32_t e)
     if (p_gobj == NULL) return -1;
     if (e == 0) return 0;
     if (p_src == NULL) return set_error_ret(p_gobj, 31021, -1);
-    if (e > 0 && fast_g_obj_nonneutral(p_gobj, 0) == 0) {
-        if (fast_g_obj_copy(p_gobj, p_src, 0) < 0) return -1;
-        e -= 1;
-        if (e == 0) return 0;
+    uint32_t len_g, g_buf[MM_FAST_MAXLEN_G_RED];
+    uint32_t *pg = fast_g_obj_get_g(p_src, 0, &len_g);
+    if (pg == NULL) return set_error_ret(p_gobj, 31022, -1);
+    if (len_g > MM_FAST_MAXLEN_G_RED)
+         return set_error_ret(p_gobj, 31023, -1);
+    if (p_gobj == p_src) {
+        for (uint32_t i = 0; i < len_g; ++i) g_buf[i] = pg[i];
+        pg = g_buf;
     }
-    uint32_t len_g;
-    uint32_t *g = fast_g_obj_get_g(p_src, 0, &len_g);
-    if (g == NULL) return set_error_ret(p_gobj, 31022, -1);
-    return mulexp(p_gobj, g, len_g, e);
+    return mulexp(p_gobj, pg, len_g, e);
 }
 
 
@@ -840,55 +860,62 @@ int32_t fast_g_obj_setpower(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int64
     int64_t op = 32001, status = -1;
     mm_fast_g_type *f1 = NULL, *f3 = NULL, *f;
     if (p_gobj == NULL) return -1;
-    _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
     uint32_t flags = get_flags(p_gobj);
     if (flags & (FLAG_ERROR | FLAG_FROZEN)) goto failure;
     if (e == 0) return fast_g_obj_setneutral(p_gobj);
-    if (fast_g_obj_copy(p_gobj, p_src, e != 1) < 0) goto failure;
+    if (e > 1) {
+         op = 32002;
+         if (augment(p_gobj, FLAG_SHORT | FLAG_MAT) & FLAG_ERROR)
+             goto failure;
+    }
+    if (fast_g_obj_copy(p_gobj, p_src, e < 0) < 0) goto failure;
     if (e == 1) return 0;
-    uint32_t ue = e;
+    uint64_t ue = e;
     if (e < 0) {
         uint32_t g_len = 0;
-        uint32_t *p_g = fast_g_obj_get_g(p_gobj, 1, &g_len);
+        uint32_t *p_g = fast_g_obj_get_g(p_gobj, 0, &g_len);
         if (p_g == NULL) goto failure;
         mm_group_invert_word(p_gobj->g, g_len);
         ue = -ue;
     }
     while ((ue & 3) == 0) {
-        status = fast_g_obj_mulexp_obj(p_gobj, p_gobj, 3);
+        status = mulexp_obj(p_gobj, p_gobj, 3);
         if (status < 0) goto failure;
         ue >>= 2;
     }
+    status = -1;
     while ((ue % 3) == 0) {
-        status = fast_g_obj_mulexp_obj(p_gobj, p_gobj, 2);
+        status = mulexp_obj(p_gobj, p_gobj, 2);
         if (status < 0) goto failure;
         ue = ue / 3;
     }
-    if (ue < 6) return fast_g_obj_mulexp_obj(p_gobj, p_gobj, e-1);
+    status = -1;
+    if (ue < 6) return mulexp_obj(p_gobj, p_gobj, ue - 1);
 
     // Now ue >= 6. Process the first two bits after the leading bit
     // of ue and store 1st and 3rd power of basis in f1 and f3.
-    uint32_t bpos = uint64_bit_len(ue) - 1; // pos. of leading bit
+
+    int32_t bpos = uint64_bit_len(ue) - 1; // pos. of leading bit
     uint32_t d = (ue >> (bpos - 2)) & 3;    // next two bits to be done
     f1 = fast_g_obj_new();
     f3 = fast_g_obj_new();
-    op = 32002;
+    op = 32003;
     if (f1 == NULL || f3 == NULL) goto failure;
-    status = fast_g_obj_copy(p_gobj, f1, 0);
+    status = fast_g_obj_copy(f1, p_gobj, 0);
     if (status < 0) goto failure;
-    status = fast_g_obj_mulexp_obj(p_gobj, p_gobj, 2);
+    status = mulexp_obj(p_gobj, p_gobj, 2);
     if (status < 0) goto failure;
-    status = fast_g_obj_copy(p_gobj, f3, 0);
+    status = fast_g_obj_copy(f3, p_gobj, 0);
     if (status < 0) goto failure;
     if (d == 2) {
-        status = fast_g_obj_mulexp_obj(p_gobj, p_gobj, 1);
+        status = mulexp_obj(p_gobj, p_gobj, 1);
         if (status < 0) goto failure;
     } else {
-        status = fast_g_obj_mulexp_obj(p_gobj, f1, 1);
+        status = mulexp_obj(p_gobj, f1, 1);
         if (status < 0) goto failure;
         if (d) {
             f = (d == 3) ?  f3 : f1;
-            status = fast_g_obj_mulexp_obj(p_gobj, f, 1);
+            status = mulexp_obj(p_gobj, f, 1);
             if (status < 0) goto failure;
         }
     }
@@ -902,11 +929,11 @@ int32_t fast_g_obj_setpower(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int64
             d =  (ue >> (bpos - 2)) & 3;
             if (d == 2) k = d = 1;
         } else d =  (ue >> (bpos - 1)) & 1;
-        status = fast_g_obj_mulexp_obj(p_gobj, p_gobj, (1 << k) - 1);
+        status = mulexp_obj(p_gobj, p_gobj, (1 << k) - 1);
         if (status < 0) goto failure;
         if (d) {
              f = (d == 3) ?  f3 : f1;
-             status = fast_g_obj_mulexp_obj(p_gobj, f, 1);
+             status = mulexp_obj(p_gobj, f, 1);
              if (status < 0) goto failure;
         }
         bpos -= k;
@@ -918,9 +945,7 @@ int32_t fast_g_obj_setpower(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int64
 failure:
     if (f1) fast_g_obj_delete(f1);
     if (f3) fast_g_obj_delete(f3);
-    atomic_store(p_flags, FLAG_ERROR | FLAG_FROZEN);
-    set_error(p_gobj, op, status);
-    return status;
+    return set_error_ret(p_gobj, op, status);
 }
 
 
@@ -985,8 +1010,7 @@ int32_t fast_g_obj_mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, i
  
 failure:
     if (exp) fast_g_obj_delete(exp);
-    set_error(p_gobj, 33001, -1);
-    return -1;    
+    return set_error_ret(p_gobj, 33001, -1);
 }
 
 
@@ -1009,15 +1033,13 @@ int32_t fast_g_obj_mulexp_obj(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int
 {
     if (p_gobj == NULL) return -1;
     if (e == 0) return 0;  
-    if (p_src == NULL) return set_error(p_gobj, 34001, -1);
-
-    _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
+    if (p_src == NULL) return set_error_ret(p_gobj, 34001, -1);
     uint32_t flags = get_flags(p_gobj);
-
     if (flags & (FLAG_ERROR | FLAG_FROZEN))
-        set_error(p_gobj, 34002, -1);
+        return set_error_ret(p_gobj, 34002, -1);
     uint32_t len_src = 0;
     uint32_t *g_src = fast_g_obj_get_g(p_src, 0, &len_src);
+    if (g_src == NULL) return set_error_ret(p_gobj, 34003, -1);
     return fast_g_obj_mulexp(p_gobj, g_src, len_src, e);
 }
 

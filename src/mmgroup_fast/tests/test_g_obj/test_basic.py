@@ -4,6 +4,7 @@ from random import randint, shuffle
 
 import pytest
 
+from mmgroup.clifford12 import uint64_bit_len
 from mmgroup_fast.mm_op_fast import MMOpFastG
 from mmgroup import MM0, MMV, MM
 from mmgroup_fast.mm_op_fast import MMOpFastMatrix
@@ -26,8 +27,28 @@ def hex_array(text, arr):
     return "\n".join(lines)
 
 
+
+def chk_MMOpFastG_equ_mm(a, g, message = "", do_raise = True):
+    if not isinstance(a, MMOpFastG):
+        ERR = "Element should be %s, but is %d"
+        raise ValueError(ERR % (type(MMOpFastG()), type(a)))
+    mm = MM('a', np.concatenate((a.copy().inverse_mmdata, g.mmdata)))
+    if mm == MM():
+        return
+    print("\n")
+    if (message):
+        print(message)
+    print("MMOpFastG element is:\n  %s" % str(a))
+    a._display_flags()
+    print("But it should be equal to:\n  %s" % str(g))
+    ERR = "Monster group elements are different"
+    if do_raise:
+        raise ValueError(ERR)
+    else:
+        print("\nError: %s!!!\n" % ERR)
+
 @pytest.mark.mm_op
-def test_basis(verbose = 0):
+def test_basics(verbose = 0):
     data = [
         (str(MM0('r', 14)),),
         (),  
@@ -75,6 +96,35 @@ def test_basis(verbose = 0):
         if verbose:
             print(hex_array("a0", a0.mmdata))
             print(hex_array("a", a.mmdata))
+        chk_MMOpFastG_equ_mm(a, a0)
         assert MM(a0) == MM('a', a.mmdata) # This fails!!!
         del a
+
+
+
+def do_test_exp(max_exp, factor, verbose):
+    b = MM('r')
+    bf = MMOpFastG(b)
+    bpwr = b**factor
+    chk_MMOpFastG_equ_mm(bf, b)
+    b_exp = MM()
+    for e0 in range(max_exp+1):
+        e = e0 * factor
+        if verbose:
+            print("exponent", e, ", bitlen(e) =", uint64_bit_len(abs(e)))
+        bf_exp = bf ** e
+        msg = "Error in mulexp, e = %d" % e
+        chk_MMOpFastG_equ_mm(bf_exp, b_exp, msg, False)
+        if e0 <= max_exp:
+           b_exp *= bpwr
+
+
+@pytest.mark.mm_op
+def test_exp(verbose=0):
+    do_test_exp(7, 1, verbose)
+    do_test_exp(7, -1, verbose)
+    do_test_exp(5, 5, verbose)
+    do_test_exp(5, -5, verbose)
+
+
 

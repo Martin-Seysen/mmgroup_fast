@@ -374,7 +374,7 @@ int32_t mm_axis3_fast_reduce_axes(mmv_fast_matrix_type *pm, uint32_t *pg, uint32
         status = mm_axis3_fast_load_sub_row(&am3, 1);
         if (status < 0) return err(12, status);
         status =  mm_axis3_fast_find_v4(&am3, 0);
-        if (status < 0) return  err(12, status);
+        if (status < 0) return  err(13, status);
         ax_type = status >> 25;
         if (ax_type >= last_type) return -3711;
         last_type = ax_type;
@@ -385,13 +385,13 @@ int32_t mm_axis3_fast_reduce_axes(mmv_fast_matrix_type *pm, uint32_t *pg, uint32
         v4a = status & 0xffffffUL;
         if (len + 7 > lg) return -3712; 
         status = gen_leech2_reduce_type4(v4a, pg + len);
-        if (status < 0) return err(13, status);
+        if (status < 0) return err(14, status);
         len1 = status;
         status = mm_op_fast_word(pm, pg + len, len1, 1);
-        if (status < 0) return err(14, status);
+        if (status < 0) return err(15, status);
         len += len1;
         status = mm_axis3_fast_find_exp_t(pm, 0, ax_type);
-        if (status < 0) return err(15, status);
+        if (status < 0) return err(16, status);
         if (status < 1 || status > 2) return -3713;
         e1 = status;
         pg[len] = MMGROUP_ATOM_TAG_IT + 3 - e1;

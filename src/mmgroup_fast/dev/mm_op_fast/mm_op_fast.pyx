@@ -11,6 +11,7 @@ from collections.abc import Iterable
 from numbers import Integral
 from mmgroup.structures.abstract_mm_group import AbstractMMGroupWord
 from mmgroup import MMVector, MM0
+from mmgroup.generators import mm_group_invert_word
 
 
 import numpy as np

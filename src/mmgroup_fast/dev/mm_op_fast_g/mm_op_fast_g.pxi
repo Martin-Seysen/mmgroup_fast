@@ -36,7 +36,7 @@ cdef class MMOpFastG:
         print("  Lengths: g: %d, reduced: %d" % (status[3], status[4]))       
 
     def _chk(self, result, errno):
-        if result < 0:
+        if result < 0:            
             print("Error in MMOpFastG object, status = %d" % result)
             self._display_flags()
             try:
@@ -64,6 +64,14 @@ cdef class MMOpFastG:
     @property
     def mmdata(self):
         return self.g(1)
+
+
+    @property
+    def inverse_mmdata(self):
+        mm = self.g(1)
+        mm_group_invert_word(mm.data, len(mm));
+        return mm
+
 
     def _augment(self, int64_t flags, int64_t kill=0):
         flags = fast_g_obj_augment(self.ptr, flags, kill)
@@ -110,13 +118,16 @@ cdef class MMOpFastG:
     @cython.boundscheck(False)
     def mulexp(self, other, int32_t e = 1):
         cdef int32_t status
+        cdef MMOpFastG other_obj
         cdef mm_fast_g_type *other_ptr
         cdef uint32_t[:] m_data
         cdef uint32_t *other_g
         cdef uint32_t other_len
         if isinstance(other, MMOpFastG):
-            other_ptr = <mm_fast_g_type *>other.ptr
+            other_obj = other
+            other_ptr = <mm_fast_g_type *>(other_obj.ptr)
             status = fast_g_obj_mulexp_obj(self.ptr, other_ptr, e)
+            self._chk(status, 1)
         else:
             if isinstance(other, AbstractMMGroupWord):
                 m_data = other.mmdata
@@ -130,29 +141,30 @@ cdef class MMOpFastG:
 
 
     def copy(self, uint32_t g_only = 0):
-        mycopy = MMOpFastG()
-        cdef  mm_fast_g_type *myptr = <mm_fast_g_type *>mycopy.ptr
+        cdef MMOpFastG mycopy = MMOpFastG()
+        cdef mm_fast_g_type *myptr = <mm_fast_g_type *>(mycopy.ptr)
         cdef int32_t status = fast_g_obj_copy(myptr, self.ptr, g_only)
-        self._chk(status, 2)
+        mycopy._chk(status, 2)
         return mycopy
         fast_g_obj_copy
 
 
     def exp(self, e):
-        mycopy = MMOpFastG()
-        cdef  mm_fast_g_type *myptr = <mm_fast_g_type *>mycopy.ptr
+        cdef MMOpFastG mycopy = MMOpFastG()
+        cdef mm_fast_g_type *myptr = <mm_fast_g_type *>(mycopy.ptr)
         cdef int32_t status
         if abs(e) < self._MAXEXP:
-            status = fast_g_obj_mulexp_obj(myptr, self.ptr, e)
-            self._chk(status, 1)
+            status = fast_g_obj_setpower(myptr, self.ptr, e)
+            print("set power, e =", e, ", status=", status)
+            mycopy._chk(status, 1)
             return mycopy
         eh, el = divmod(e, self._MAXEXP)
         h = self.exp(eh)
         cdef  mm_fast_g_type *hptr = <mm_fast_g_type *>h.ptr
-        status = fast_g_obj_mulexp_obj(myptr, hptr, self._MAXEXP)
-        self._chk(status, 1)
+        status = fast_g_obj_setpower(myptr, hptr, self._MAXEXP)
+        mycopy._chk(status, 1)
         status = fast_g_obj_mulexp_obj(myptr, self.ptr, el)
-        self._chk(status, 1)
+        mycopy._chk(status, 1)
         return mycopy
         
 
@@ -171,13 +183,9 @@ cdef class MMOpFastG:
         inv.mulexp(self)
         return inv.mulexp(other)
 
-    def __pwr__(self, other):
+    def __pow__(self, other):
         if isinstance(other, Integral):
-           if abs(other) <= 4:
-               return self.exp(other)
-           else:
-               q, r = divmod(other, 4)
-               return ((self**q).exp(4)).mulexp(self, r)   
+           return self.exp(other)
         else:
            return self.conj(other)
                 
