@@ -185,7 +185,7 @@ release_write_access(mm_fast_g_type *p_gobj, uint64_t old_flags, uint64_t new_fl
 
    Here ``op`` describes a function where the error occures
    and ``status`` describes an error at a low-level function.
-   The function returns the flags after settnig the error.
+   The function returns the flags after setting the error.
 */
 static inline int64_t
 set_error(mm_fast_g_type *p_gobj, int64_t op, int64_t status)
@@ -878,6 +878,7 @@ int32_t fast_g_obj_setpower(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int64
         mm_group_invert_word(p_gobj->g, g_len);
         ue = -ue;
     }
+    if (ue < 6) return mulexp_obj(p_gobj, p_gobj, ue - 1);
     while ((ue & 3) == 0) {
         status = mulexp_obj(p_gobj, p_gobj, 3);
         if (status < 0) goto failure;
@@ -907,17 +908,16 @@ int32_t fast_g_obj_setpower(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int64
     if (status < 0) goto failure;
     status = fast_g_obj_copy(f3, p_gobj, 0);
     if (status < 0) goto failure;
-    if (d == 2) {
-        status = mulexp_obj(p_gobj, p_gobj, 1);
+    if (d >= 2) {
+        status = mulexp_obj(p_gobj, f3, 1);
         if (status < 0) goto failure;
-    } else {
-        status = mulexp_obj(p_gobj, f1, 1);
-        if (status < 0) goto failure;
-        if (d) {
-            f = (d == 3) ?  f3 : f1;
-            status = mulexp_obj(p_gobj, f, 1);
+        if (d == 3) {
+            status = mulexp_obj(p_gobj, f1, 1);
             if (status < 0) goto failure;
         }
+    } else {
+        status = mulexp_obj(p_gobj, f1, d + 1);
+        if (status < 0) goto failure;
     }
     bpos -= 2;
 

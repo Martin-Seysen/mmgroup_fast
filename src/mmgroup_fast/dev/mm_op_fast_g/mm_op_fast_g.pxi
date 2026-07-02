@@ -155,7 +155,6 @@ cdef class MMOpFastG:
         cdef int32_t status
         if abs(e) < self._MAXEXP:
             status = fast_g_obj_setpower(myptr, self.ptr, e)
-            print("set power, e =", e, ", status=", status)
             mycopy._chk(status, 1)
             return mycopy
         eh, el = divmod(e, self._MAXEXP)

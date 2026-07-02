@@ -1,6 +1,7 @@
+from collections import OrderedDict
+from random import randint, shuffle
 
 import numpy as np
-from random import randint, shuffle
 
 import pytest
 
@@ -52,9 +53,25 @@ def quot_ms(f, *args):
 
 
 
+
+@pytest.fixture(scope="session")
+def fast_vector_op_timings():
+    runtimes =  OrderedDict()
+    m = make_matrix()
+    op = [
+        ('p', [('p', 23), ('d', 12745645)]),
+        ('xy', [('x', 1237), ('y', 567)]),
+        ('l', [('l', 2)]),
+        ('t', [('t', 2)]),
+    ]
+    for key, data in op:
+        runtimes[key] = bench(m, data)
+    return runtimes
+
+
 @pytest.mark.bench
 @pytest.mark.mm_op
-def test_vector_op_bench():
+def test_vector_op_bench(fast_vector_op_timings):
     cap = gcc_capabilities()
     if not cap:
         cap = 'None'
@@ -64,27 +81,12 @@ Benchmarking monster operations with GCC capabilities:
 All times are given in milliseconds.
 """ % cap
     )
-    runtimes = {}
-    m = make_matrix()
+    for key, t in fast_vector_op_timings.items():
+        print("%-2s %10.6f ms" % (key, 1000*t))
+    t = bench_weights(FREQ, fast_vector_op_timings)
+    print("%-2s %10.6f ms, (using old mmgroup reduction)" %
+        ("MM", 1000*t))
 
-    op = [('p', 23), ('d', 12745645)]        
-    runtimes['p'], msg = quot_ms(bench, m, op)
-    print ("p odd", msg)
-
-    op = [('x', 1237), ('y', 567),]
-    runtimes['xy'], msg = quot_ms(bench, m, op)
-    print ("xy   ", msg)
-
-    op = [('l', 2)]
-    runtimes['l'], msg = quot_ms(bench, m, op)
-    print ("l    ", msg)
-
-    op = [('t', 2)]
-    runtimes['t'], msg = quot_ms(bench, m, op)
-    print ("t    ", msg)
-
-    _ , msg = quot_ms(bench_weights, FREQ, runtimes)
-    print ("MM   ", msg)
 
 
 
@@ -116,7 +118,7 @@ def test_vector_mul_bench(ntests = 50, length = 20):
     print("%s mod 3: %.3f ms, mod 15: %.3f ms" % (S,t3,t15))
     tg = MM_REDUCE_OPS[3] * t3 + MM_REDUCE_OPS[15] * t15
     S = "Runtime mmgroup group operation"
-    print("%s: %.3f ms" % (S,tg))
+    print("%s:  %.3f ms" % (S,tg))
     print("Estimated speedup factor = %.2f" % (tg/(3 * t1)))
 
 

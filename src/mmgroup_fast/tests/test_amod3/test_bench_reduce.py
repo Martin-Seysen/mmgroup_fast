@@ -9,6 +9,7 @@ import pytest
 from mmgroup import MMV, MM0, MM, MMSpace, Xsp2_Co1, XLeech2
 from mmgroup.mm_reduce import mm_reduce_M
 from mmgroup_fast.mm_op_fast import MMOpFastMatrix
+from mmgroup_fast.tests.test_mm_op.test_bench_op import fast_vector_op_timings
 
 MMV3 = MMV(3)
 
@@ -26,6 +27,7 @@ def std_matrix():
 class ReduceSamples():
     N_SAMPLES = 64
     _fast_samples = None
+    _vector_samples = None
     _std_samples = None
 
     @classmethod
@@ -33,13 +35,22 @@ class ReduceSamples():
         if cls._fast_samples is not None:
             return cls._fast_samples
         cls._fast_samples = []
+        cls._vector_samples = []
         for i in range(cls.N_SAMPLES):
             g = MM0('r')
             m = std_matrix()
             m.mul_exp(g)
-            reduced = m.reduce_v_g(check=1)
+            cls._vector_samples.append(m)
+            reduced = m.copy().reduce_v_g(check=1)
             cls._fast_samples.append(reduced)
         return cls._fast_samples
+
+    @classmethod
+    def vector_samples(cls):
+        if cls._vector_samples is not None:
+            return cls._vector_samples
+        fast_samples(cls)
+        return cls._vector_samples
 
     @classmethod
     def std_samples(cls):
@@ -54,6 +65,12 @@ class ReduceSamples():
         data = []
         while len(data) < n_elements:
             data += self.fast_samples()[:]
+        return data[:n_elements]
+
+    def sample_fast_vectors(self, n_elements):
+        data = []
+        while len(data) < n_elements:
+            data += self.vector_samples()[:]
         return data[:n_elements]
 
     def sample_fast_pairs(self, n_pairs):
@@ -74,6 +91,9 @@ class ReduceSamples():
 def count_tau(a):
     b = (a >> 28) & 7 == 5
     return np.count_nonzero(b)
+
+
+
 
 def timings_fast_mul_reduce_mm(ncases = 100):
     ncases = max(10, min(ncases,2000))
@@ -106,6 +126,18 @@ def timings_fast_mul_g_mm(ncases = 100):
         timings.append(t1 - t0)
     return timings
 
+
+def timings_fast_reduce_mm(ncases = 100):
+    ncases = max(10, min(ncases,2000))
+    samples = ReduceSamples()
+    timings = []
+    vectors = samples.sample_fast_vectors(ncases)
+    for v in vectors:
+        t0 = time.time()
+        v.copy().reduce_v_g(1)
+        t1 = time.time()
+        timings.append(t1 - t0)
+    return timings
 
 
 
@@ -164,7 +196,7 @@ def test_fast_reduce_mm(ncases = 5):
 
 @pytest.mark.bench
 @pytest.mark.mm_amod3
-def test_bench_timings_fast_reduce_mm(ncases = 100):
+def test_bench_timings_fast_reduce_mm(fast_vector_op_timings, ncases = 100):
     t, n_tags = timings_fast_mul_reduce_mm(ncases)
     n, avg, sigma, min_t, max_t = stat(t)
     print("\nRuntime for fast multipliction: %.3f ms +- %.3f, max = %.3f ms"
@@ -175,6 +207,10 @@ def test_bench_timings_fast_reduce_mm(ncases = 100):
     n_m, avg_m, sigma_m, _1, _2 = stat(tm)
     print("Runtime for fast vector multipliction: %.3f ms +- %.3f" %
         (avg_m * 1000, sigma_m * 1000))
+    tr = timings_fast_reduce_mm(ncases)
+    n_r, avg_r, sigma_r, _1, _2 = stat(tr)
+    print("Runtime for fast vector reduction: %.3f ms +- %.3f" %
+        (avg_r * 1000, sigma_r * 1000))
 
     t1, n_tags1  = timings_std_mul_reduce_mm(ncases // 3 + 1)
     n1, avg1, sigma1, min_t1, max_t1= stat(t1)
