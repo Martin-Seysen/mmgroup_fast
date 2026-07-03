@@ -9,6 +9,7 @@ import pytest
 from mmgroup import MMV, MM0, MM, MMSpace, Xsp2_Co1, XLeech2
 from mmgroup.mm_reduce import mm_reduce_M
 from mmgroup_fast.mm_op_fast import MMOpFastMatrix
+from mmgroup_fast.mm_op_fast import mm_op_fast_count_g
 from mmgroup_fast.tests.test_mm_op.test_bench_op import fast_vector_op_timings
 
 MMV3 = MMV(3)
@@ -93,8 +94,6 @@ def count_tau(a):
     return np.count_nonzero(b)
 
 
-
-
 def timings_fast_mul_reduce_mm(ncases = 100):
     ncases = max(10, min(ncases,2000))
     samples = ReduceSamples()
@@ -113,7 +112,23 @@ def timings_fast_mul_reduce_mm(ncases = 100):
             n_tags[(x >> 28) & 7] += 1
     return timings, n_tags
 
+
+
+
 def timings_fast_mul_g_mm(ncases = 100):
+    """Timings of multiplication by element of Monster
+
+    The function multiplies a vector of type MMOpFastG by ``ncases``
+    random reduced elements of the Monster. It returns a pair
+    ``(timings, cost)``. Here timings is th elist of the ``ncases``
+    run times of these operations in seconds. ``cost`` is the list
+    of the  average cost (i.e. the average number of elementary
+    operations on a vector) per multipication.
+    That cost is computed by function  ``mm_op_fast_count_g``
+    in file ``mm_op_fast_g_bench.c``. 
+
+    """
+    n_op = np.zeros(4, dtype = np.uint32)
     ncases = max(10, min(ncases,2000))
     samples = ReduceSamples()
     timings = []
@@ -124,7 +139,10 @@ def timings_fast_mul_g_mm(ncases = 100):
         m.mul_exp( g1)
         t1 = time.time()
         timings.append(t1 - t0)
-    return timings
+        mm_op_fast_count_g(g1, len(g1), n_op, 1)
+    return [timings, n_op.astype(float) / ncases]
+
+
 
 
 def timings_fast_reduce_mm(ncases = 100):
@@ -194,24 +212,52 @@ def test_fast_reduce_mm(ncases = 5):
         assert g0 == MM()
 
 
+
+NCASES = 100
+
+@pytest.fixture(scope="session")
+def timings_fast_mul_g_mm_std():
+    return timings_fast_mul_g_mm(ncases = NCASES)
+
+
+
+def compute_runtime(cost_m, d_runtime, verbose = 0):
+    t = 0.0
+    tags = ["p", "xy", "t", "l"]
+    if verbose:
+        print("Operations per reduced element: ", end = "")
+        for tag, tt in zip(tags, cost_m):
+            print("%s:%.2f " % (tag, tt), end = "")
+            t += d_runtime[tag] * tt
+        print()
+    #print(d_runtime)
+    print("Time estimated from data for fast vector multipliction: %.3f ms" %
+         (1000*t))
+    return t
+
+
 @pytest.mark.bench
 @pytest.mark.mm_amod3
-def test_bench_timings_fast_reduce_mm(fast_vector_op_timings, ncases = 100):
+def test_bench_timings_fast_reduce_mm(timings_fast_mul_g_mm_std,
+      fast_vector_op_timings):
+    ncases = NCASES
     t, n_tags = timings_fast_mul_reduce_mm(ncases)
     n, avg, sigma, min_t, max_t = stat(t)
     print("\nRuntime for fast multipliction: %.3f ms +- %.3f, max = %.3f ms"
         ", %d tests" %
         (avg * 1000, sigma * 1000, max_t * 1000, len(t)))
     display_tags(n, n_tags)
-    tm = timings_fast_mul_g_mm(ncases)
+
+    tm, cost_m = timings_fast_mul_g_mm_std
+    d_runtime = fast_vector_op_timings
     n_m, avg_m, sigma_m, _1, _2 = stat(tm)
     print("Runtime for fast vector multipliction: %.3f ms +- %.3f" %
         (avg_m * 1000, sigma_m * 1000))
+    compute_runtime(cost_m, d_runtime, verbose = 1)
     tr = timings_fast_reduce_mm(ncases)
     n_r, avg_r, sigma_r, _1, _2 = stat(tr)
     print("Runtime for fast vector reduction: %.3f ms +- %.3f" %
         (avg_r * 1000, sigma_r * 1000))
-
     t1, n_tags1  = timings_std_mul_reduce_mm(ncases // 3 + 1)
     n1, avg1, sigma1, min_t1, max_t1= stat(t1)
     print("Runtime for  std multipliction: %.3f ms +- %.3f, max = %.3f ms"

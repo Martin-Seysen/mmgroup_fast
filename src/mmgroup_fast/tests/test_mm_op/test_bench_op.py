@@ -56,6 +56,13 @@ def quot_ms(f, *args):
 
 @pytest.fixture(scope="session")
 def fast_vector_op_timings():
+    """Return dict mapping tags to runtimes
+
+    Here tags are 'p', 'xy', 'l', 't'. Runtimes are runtimes in
+    seconds for the corresponding operation on a vector in class
+    MMOpFastG. Note that there is a combinded operation for 
+    tags 'x', 'y', 'd'. 
+    """
     runtimes =  OrderedDict()
     m = make_matrix()
     op = [
