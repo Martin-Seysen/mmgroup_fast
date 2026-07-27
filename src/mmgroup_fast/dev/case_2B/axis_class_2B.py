@@ -555,7 +555,7 @@ def main():
     description = "Compute types of orthogonal pairs of 2A axes, where one axis is of type 2B\n"
     usage = "usage: python %prog [options]"
     parser = argparse.ArgumentParser(description = description,
-           prog = 'sample_axis_class_2B')
+           prog =  os.path.split(sys.executable)[1] + " " + sys.argv[0])
     parser.set_defaults(processes=0)
     parser.add_argument("-r",  dest="recompute", action="store_true",
         help="recompute sample axes, takes a long time!")
