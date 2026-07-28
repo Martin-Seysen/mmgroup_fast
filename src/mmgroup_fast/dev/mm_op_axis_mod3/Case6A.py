@@ -680,6 +680,7 @@ def display_stat_6A(ntests = 10, check = True, verbose = True):
         print("Orbit statistics, subtypes = ", subtypes_list)
         FMT ="%02x (%02x,%02x), %-26s, weight=%4s, %012x; n_BC=%3d"
         suborbit_list.sort()
+        print("Statistics for axis type 6A") 
         for entry in suborbit_list:
             short, others, types, data, weight3, v3a, n_BC = entry
             data = [short] + others + [data, weight3, v3a, n_BC]

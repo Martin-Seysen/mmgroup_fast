@@ -682,6 +682,7 @@ def check_C_transformation(axis, v4):
 
 
 def compute(ntests = 10, verbose = 0):
+    print("Testing reduction of axis type 10A")
     g_start, orbits = parse_mat24_orbits("10A")
     data = []
     for g in orbits:
@@ -710,6 +711,7 @@ def compute(ntests = 10, verbose = 0):
             assert 0 < v <= 1 << 24, v
             check_transformation(axis1, v)
             check_C_transformation(axis1, v)
+    print("passed")
 
 
 def compute_general(ntests = 1000, verbose = 0):

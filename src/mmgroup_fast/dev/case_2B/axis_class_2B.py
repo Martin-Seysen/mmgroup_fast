@@ -461,10 +461,11 @@ def display_axes(d, options, coeff):
             if minlen_large:
                 assert min([min(x.values()) for x in df]) == minlen_large
         if options.cent:
-            cent = cent_axis(ax)
+            g_type, cent = cent_axis(ax)
+            gtype = g_type + ", "  if g_type else ""
             s = [f"{t}:{n}" for t, n in cent]
-            print("  centralizer info: [%s]" % ", ".join(s))
-            assert cent == cent_axis(ax * rand_y())
+            print("  centralizer info: %s[%s]" % (gtype, ", ".join(s)))
+            assert (g_type, cent) == cent_axis(ax * rand_y())
         if options.beautify:
             ax1 = ax * rand_y()
             beautify_axis_octad(ax1, check = 1, case = case, verbose = 1)
@@ -602,7 +603,7 @@ def main():
         )
     parser.add_argument("--case", action="extend", nargs="+", type=int,
         metavar = 'N',
-        help = "diplay information for cases N only"
+        help = "display information for cases N only"
         )
 
 

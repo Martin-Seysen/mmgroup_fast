@@ -71,6 +71,13 @@ def get_axis_samples():
     return _AXIS_SAMPLES
 
 
+def Gx0_type(axis):
+    g = Y * axis.g_axis
+    try:
+        iclass, a = g.conjugate_involution_G_x0()
+        return iclass
+    except:
+        return None 
 
 def cent_axis(axis):
     d = defaultdict(int)
@@ -79,9 +86,10 @@ def cent_axis(axis):
         if axis == ax:
             d[types] += 1
     d_list = []
+    g_type = Gx0_type(axis)
     for t in sorted(d):
         d_list.append((t, d[t]))
-    return d_list
+    return g_type, d_list
         
     
 
