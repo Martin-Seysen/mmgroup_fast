@@ -28,7 +28,7 @@ Deals with axes of axis type 2B and 6F and 10B
 
 /// @cond DO_NOT_DOCUMENT 
 
-// Stucture for assembling data about an axis of type 2B or 9F  
+// Stucture for assembling data about an axis of type 2B or 6F  
 
 #define LEN_TF 8         // length of component tf in following structure    
 

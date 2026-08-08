@@ -1,0 +1,170 @@
+/** @file mm_op_fast_g_init.c
+
+ File ``mm_op_fast_g_init.c`` provides the basic functions for
+ constructing structures of type ``mmv_fast_g_type``
+ representing elements of the Monster.
+
+ This is not yet functional!
+*/
+
+
+#include <stdint.h>
+#include <stdatomic.h>
+#include <stddef.h>
+#include <stdlib.h>
+
+
+/// @cond DO_NOT_DOCUMENT 
+#define MM_OP_FAST_ALLOC
+/// @endcond 
+
+#include "mm_reduce.h"
+#include "mm_op_fast.h"
+#include "mm_op_sub.h"   
+
+
+//  %%GEN h
+/// @cond DO_NOT_DOCUMENT
+
+//  %%GEN c
+
+
+
+/// @cond DO_NOT_DOCUMENT
+
+
+
+
+
+
+
+
+/**
+   @brief Check if an element of the Monster is in a subgroup
+
+   Let ``g`` be the element of the Monster stored as a word of
+   length ``len_g`` in the buffer ``g``. The function returns a
+   bitmap as follows:
+
+   Bit 0 is 0 if and only if ``g`` in \f$N_{0}\f$.
+
+   Bit 1 is 0 if and only if ``g`` in \f$G_{x0}\f$.
+*/
+static inline uint32_t fast_g_obj_elem_in_subgroup(uint32_t *g, uint32_t lg)
+{
+     uint32_t res = 0;
+     for (uint32_t i = 0; i < lg; ++i) {
+         uint32_t a = g[i];
+         switch (lg & 0x70000000UL) {
+             case 0x50000000UL:
+                res |= (a ^ (a >> 1)) & 1;
+                if (res == 3) return 3;
+                break;
+             case 0x60000000UL:
+                res |= (a ^ (a << 1)) & 2;
+                if (res == 3) return 3;
+                break;
+             case 0x70000000UL:
+                if (res & 0xfffffffULL) return 3;
+                break;
+             default:
+                break;
+         }
+     }
+     return res;
+}
+
+
+static inline
+int32_t exp_n0(uint32_t *res, uint32_t *g, uint32_t lg, int32_t e)
+// put res := g**e, where g is an element of N_0 in buffer ``g`` of
+// length ``lg``. Format of res, see file mm_group_n.c. The function
+// returns 0 in case of success, and a negative value otherwise.
+{
+     mm_group_n_clear(res);
+     if (e == 0) return 0;
+     if (mm_group_n_mul_word_scan(res, g, lg) != lg) return -17;
+     mm_group_n_exp_element(res, e, res);
+     return 0; 
+}
+
+
+/// @endcond
+
+
+/**
+   @brief Multiplication / in a subgroup
+
+   Let ``g``, ``h`` be elements of the Monster stored as words of
+   length ``len_g``, ``len_h``,  in the buffers ``g`` and ``h``, 
+   repectively. The function computes ``g**eg * h**eh`` if possible.
+   It stores the result in buffer ``out`` and returns its length,
+   or a negative value in case of failure.
+
+   The function succeedss if both, ``g`` and ``h`` are in the same
+   subgroup of the Monster, which must be \f$N_{0}\f$ or \f$G_{x0}\f$.
+
+   Buffer ``out`` must have buffer length at least 10.
+   In case of failure the content of ``out`` is not changed. 
+*/
+// %%EXPORT p
+int32_t fast_g_obj_subgroup_mul_e(uint32_t *g, uint32_t lg, int32_t eg, uint32_t *h, uint32_t lh, int32_t eh, uint32_t *out)
+{
+    uint32_t buf[10], st = fast_g_obj_elem_in_subgroup(g, lg)
+                         | fast_g_obj_elem_in_subgroup(h, lh);
+    int32_t res = -1;
+    if (lg == 0 || eg == 0) {
+        eg = eh; lg = lh; g = h; 
+        lh = eh = 0;
+        if (lg == 0 || eg == 0) return 0;
+    };
+    if ((st & 3UL) == 3UL) return -1;
+               
+    if (st & 2) {
+        uint64_t elem_g[26], elem_h[26];
+        // Convert word ``g`` to element ``elem`` 
+        res = xsp2co1_set_elem_word(elem_g, g, lg);
+        if (res < 0) return res;
+        // Compute  ``elem_g ** eg``
+        res = xsp2co1_power_elem(elem_g, eg, elem_g);
+        if (res< 0) return res;
+        if (eh) {
+            // same procedure with elem_h
+            res = xsp2co1_set_elem_word(elem_h, h, lh);
+            if (res < 0) return res;
+            res = xsp2co1_power_elem(elem_h, eh, elem_h);
+            if (res< 0) return res;
+            // put g = g * h
+            res = xsp2co1_mul_elem(elem_g, elem_h, elem_g);
+            if (res< 0) return res;
+        }
+        res = xsp2co1_elem_to_word(elem_g, g);
+        if (res< 0) return res;
+        res = xsp2co1_reduce_word(g, res, buf);
+        if (res< 0) return res;
+    } else {
+        uint32_t elem_g[5], elem_h[5];
+        res = exp_n0(elem_g, g, lg, eg);
+        if (res < 0) return res;
+        if (eh) {
+            // same procedure with elem_h
+            res = exp_n0(elem_h, h, lh, eh);
+            if (res < 0) return res;
+            mm_group_n_mul_element(elem_g, elem_h, elem_g);
+        }
+        res = mm_group_n_to_word_std(elem_g, buf);
+        if (res< 0) return res;
+    }
+    for (int i = 0; i < res; ++i) out[i] = buf[i];
+    return res;
+}
+
+
+
+
+
+
+//  %%GEN h
+/// @endcond 
+//  %%GEN c
+

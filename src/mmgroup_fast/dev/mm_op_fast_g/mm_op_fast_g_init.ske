@@ -336,7 +336,25 @@ static int64_t compute_mat(mm_fast_g_type *p_gobj, int64_t flags)
 }
 
 
+/**
+   @brief Add the reduced word to object of type ``mm_fast_g_type``
 
+   The function adds the reduced word to an element of the Monster
+   of type ``mm_fast_g_type``. It is assumed that the object has
+   flags ``flags``, as obtained by function ``get_write_access``.
+   The function returns the updated flags without changing the flags
+   of the object.
+*/
+static int64_t compute_reduced_subgroup(mm_fast_g_type *p_gobj, int64_t flags)
+{
+    if (flags & ~FLAG_G) return flags;
+    if (flags & FLAG_REDUCED) return flags;
+    int32_t res = fast_g_obj_subgroup_mul_e(p_gobj->g, p_gobj->len_g, 1,
+                    NULL, 0, 0, p_gobj->g_reduced);
+    if (res < 0) return flags;
+    p_gobj->len_g_reduced = res;
+    return flags | (FLAG_REDUCED | FLAG_SHORT | FLAG_G);    
+}
 
 
 
@@ -352,6 +370,7 @@ static int64_t compute_mat(mm_fast_g_type *p_gobj, int64_t flags)
 static int64_t compute_reduced(mm_fast_g_type *p_gobj, int64_t flags)
 {
     int32_t op = 2001, status = -1, len;
+    gt_word_type *p_gt = NULL;
     mmv_fast_matrix_type mat_copy;
     if (flags & FLAG_REDUCED) return flags;
     if ((flags & FLAG_MAT) == 0) return set_error(p_gobj, 2001, -1);
@@ -365,14 +384,25 @@ static int64_t compute_reduced(mm_fast_g_type *p_gobj, int64_t flags)
     len = mm_axis3_fast_reduce_v_g(&mat_copy, p_gobj->g_reduced,
         MM_FAST_MAXLEN_G_RED, 1); 
     mm_op_fast_dealloc(&mat_copy);
-    if (len < 0) return set_error(p_gobj, 2002, len);
-    if (len > MM_FAST_MAXLEN_G_RED) return set_error(p_gobj, 2003, len);
+    if (len < 0) return set_error(p_gobj, 2005, len);
+    if (len > MM_FAST_MAXLEN_G_RED) return set_error(p_gobj, 2006, len);
     mm_group_invert_word(p_gobj->g_reduced, len);
     p_gobj->len_g_reduced = len;
     p_gobj->len_g = 0;
+
+    p_gt = gt_word_alloc(1, &p_gobj->g, sizeof(&p_gobj->g));
+    if (p_gt == NULL) return set_error(p_gobj, 3002, -2);
+    status = gt_word_append(p_gt, p_gobj->g_reduced, p_gobj->len_g_reduced);
+    if (status < 0)  goto failure;
+    op = 2007;
+    status = gt_word_store(p_gt, p_gobj->g_reduced, MM_FAST_MAXLEN_G_RED);
+    if (status < 0)  goto failure;
+    gt_word_free(p_gt);
+    p_gobj->len_g_reduced = len;
     return flags | (FLAG_REDUCED | FLAG_SHORT | FLAG_G);
 
 failure:
+    gt_word_free(p_gt);
     mm_op_fast_dealloc(&mat_copy);
     return  set_error(p_gobj, op, status);
 }
@@ -401,6 +431,7 @@ static int64_t compute_fast_int(mm_fast_g_type *p_gobj, int64_t flags)
     op = 3004;
     status = gt_word_compress(p_gt, p_gobj->int_g);
     if (status < 0)  goto failure;
+    gt_word_free(p_gt);
     return flags | FLAG_ASINT;
 
 failure:
@@ -442,7 +473,10 @@ int64_t augment(mm_fast_g_type *p_gobj, uint64_t requested)
             requested |= FLAG_REDUCED;
         else new_flags |= FLAG_SHORT;
     }
-    if (requested & ~flags & FLAG_REDUCED) requested |= FLAG_MAT;
+    if (requested & ~flags & FLAG_REDUCED) {
+        new_flags = compute_reduced_subgroup(p_gobj, new_flags);
+        if (requested & ~new_flags & FLAG_REDUCED) requested |= FLAG_MAT;
+    }
     if (requested & ~new_flags & FLAG_MAT)
         new_flags = compute_mat(p_gobj, new_flags);
     if (new_flags & FLAG_ERROR)
@@ -645,7 +679,8 @@ failure:
    Here the object of type ``mm_fast_g_type`` referred by ``p_gobj``
    must be mutable. The function copies the object referred by ``p_src``
    to the object  referred by ``p_gobj``. If ``g_only`` is nonzero
-   then only a (short, not necessarily reduced) word ``g`` is copied.
+   then only a (short, not necessarily reduced) word ``g`` is copied,
+   and the word ``g`` in the copy ``*p_gobj`` is declared non-reduced.
  
    The function return 0 in case of success and a negative value in
    case of error.
@@ -747,6 +782,19 @@ int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
         return set_error_ret(p_gobj, 31002, -1);
     uint32_t lg = (flags & FLAG_REDUCED)
                 ? p_gobj->len_g_reduced : p_gobj->len_g;
+
+    // try to work in a subgroup
+    if (flags & FLAG_G) {
+        uint32_t *pg = (flags & FLAG_REDUCED)
+                ? p_gobj->g_reduced : p_gobj->g;
+        int32_t status = fast_g_obj_subgroup_mul_e(pg, lg, 1,
+            g, len_g, e,  p_gobj->g_reduced);
+        if (status >= 0) {
+            p_gobj->len_g_reduced = status;
+            atomic_store(p_flags, flags | FLAG_REDUCED | FLAG_SHORT);
+            return 0;
+        }
+    }
 
     // Compute component p_gobj->mat  if needed
     if ((flags & FLAG_G) == 0 || (llen_g + lg) > MM_FAST_MAXLEN_G 

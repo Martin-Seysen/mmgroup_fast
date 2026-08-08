@@ -463,6 +463,7 @@ MM_OP_FAST_SOURCES = '''
    mm_axis3_fast_orderv_59.c
    mm_op_fast_g_init.c
    mm_op_fast_g_bench.c
+   mm_op_fast_g_sub.c
 '''
 
 MM_OP_FAST_GENERATE = GENERATE_START + '''
