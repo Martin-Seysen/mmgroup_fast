@@ -255,13 +255,28 @@ cdef class MMOpFastMatrix:
         assert status >= 0, status
         return a[:status]    
 
-    def reduce_v_g(self, check=False):
+    def reduce_v_g(self, uint32_t mode = 0x1e):
         a = np.zeros(80, dtype = np.uint32)
         cdef uint32_t[:] r = a
         cdef int32_t status
-        status = mm_axis3_fast_reduce_v_g(&self.m, &r[0], len(a), check);
+        cdef uint64_t *p_dummy = NULL
+        status = mm_axis3_fast_reduce_v_g(&self.m, &r[0], len(a), p_dummy, mode);
         assert status >= 0, status
         return a[:status]    
+
+    def reduce_v_g_as_int(self):
+        cdef int32_t j
+        a = np.zeros(80, dtype = np.uint32)
+        cdef uint32_t[:] r = a
+        ii = np.zeros(4, dtype = np.uint64)
+        cdef uint64_t[:] pi = ii
+        cdef int32_t status
+        status = mm_axis3_fast_reduce_v_g(&self.m, &r[0], len(a), &pi[0], 0x1f);
+        assert status >= 0, status
+        i = int(r[3])
+        for j in range(2, -1, -2):   
+            i = (i << 64) + int(r[j])
+        return i
 
 
     def dump(self):

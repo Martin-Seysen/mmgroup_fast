@@ -42,7 +42,7 @@ class ReduceSamples():
             m = std_matrix()
             m.mul_exp(g)
             cls._vector_samples.append(m)
-            reduced = m.copy().reduce_v_g(check=1)
+            reduced = m.copy().reduce_v_g(mode=1)
             cls._fast_samples.append(reduced)
         return cls._fast_samples
 
@@ -207,7 +207,7 @@ def test_fast_reduce_mm(ncases = 5):
         #print(g)
         m = std_matrix()
         m.mul_exp(g)
-        a = m.reduce_v_g(check = i & 1)
+        a = m.reduce_v_g(mode = i & 1)
         g0 = MM('a', np.concatenate((g.mmdata, a)))
         assert g0 == MM()
 

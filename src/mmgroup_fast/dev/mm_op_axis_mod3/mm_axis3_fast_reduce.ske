@@ -727,19 +727,17 @@ static inline int32_t subtract_vstd(mmv_fast_matrix_type *pm)
 * Find element of Monster from triple of vectors v^+, v^-, v_1
 **********************************************************************/
 
+/// @cond DO_NOT_DOCUMENT 
+     #define MAX_GLEN 96    
 
 /**
-   @brief Find element of Monster from triple of vectors v^+, v^-, v_1
+   @brief Workhorse for function ``mm_axis3_fast_reduce_v_g``.
 
-
-   Yet to be documented!!!
-   check = 0: don't check
-   check = 1: check an complain
-   check = 2: check and return nonzero value in pm in case of error
-
+   Parameters are as in that function. Only bits 0 an 1 of
+   parameter ``mode`` are evaluated.
 */
-// %%EXPORT p
-int32_t mm_axis3_fast_reduce_v_g(mmv_fast_matrix_type *pm, uint32_t *g, uint32_t lg, uint32_t check)
+static inline int32_t 
+reduce_v_g(mmv_fast_matrix_type *pm, uint32_t *g, uint32_t lg, uint32_t mode)
 {
      int32_t res;
      uint32_t len_g, len_g1;
@@ -749,16 +747,108 @@ int32_t mm_axis3_fast_reduce_v_g(mmv_fast_matrix_type *pm, uint32_t *g, uint32_t
      if (len_g + 10 > lg) return -12;
      len_g1 = res = mm_axis3_fast_reduce_G_x0(pm, g+len_g);
      if (res < 0) return res;
-     if (check) {
+     if (mode & 1) {
          mm_op_fast_word(pm, g + len_g, len_g1 , 1);
          if ((res = subtract_vstd(pm)) < 0) return res;
          res = mm_op_fast_mode1_check_zero(pm, 7);
          if (res < 0) return res;
-         if ((check == 1) && res) return -10000-(res & 7);
+         if (res) return -10000-(res & 7);
      }
      len_g += len_g1;
+     if (mode & 2) mm_group_invert_word(g, len_g);     
      return len_g;
 }
+
+
+/// @endcond
+
+
+
+
+
+
+/**
+   @brief Find element of Monster from triple of vectors v^+, v^-, v_1
+
+   Let ``pm`` point to a matrix containing the triple of vectors
+
+   \f$(v^+ * g, v^- * g, v_1 * g)  \pmod{3}\f$.
+
+   Here \f$v^+, v^-, v_1\f$ are the standard vectors from [Sey22] used
+   for identifying an element of the Monster. The function computes
+   the element \f$g\f$ from matrix ``pm`` and returns the result in
+   standard form in the buffer ``g`` of length ``lg``. Here ``lg = 64``
+   is sufficient. The bits in parameter ``mode`` means the following:
+
+   Bit 0: perform additional check when set; otherwise favour speed.
+
+   Bit 1: return ``g`` with  ``(v^+, v^-, v_1) * g = *pm`` when set;
+   otherwise return inverse of that element ``g``.
+
+   Bit 2: Use word shortening (as in module ``mm_shorten.c``) for
+   polishing the result, when set.
+
+   Bit 3: Compress the result ``g`` to an integer of at most 255 bit
+   length and store this in buffer ``gi`` of length 4, when set,
+   as documented in file ``mm_compress.c``.   
+
+   Bit 4: Work on a copy of ``pm`` when set, so the the input ``pm``
+   is not changed.
+
+*/
+// %%EXPORT p
+int32_t mm_axis3_fast_reduce_v_g(mmv_fast_matrix_type *pm, uint32_t *g, uint32_t lg, uint64_t *gi, uint32_t mode)
+{
+    int32_t res;
+    uint32_t len_g;
+    mmv_fast_matrix_type m1;
+    mm_op_fast_init(&m1, 0, 0, 0, 0);
+    uint32_t *buf = NULL;
+    gt_word_type *p_gt = NULL;
+    if (mode & 0x10) {
+        res = mm_op_fast_init(&m1, 3, 4, 1, 0);
+        if (res < 0) goto done;
+        res = mm_op_fast_copy_data(pm, &m1);
+        if (res < 0) goto done;
+        pm = &m1;
+    }
+    if ((mode & 0xc0) == 0) {
+        res = reduce_v_g(pm, g, lg, mode);
+        goto done;
+    }
+    buf = mm_op_fast_buffer_alloc(sizeof(mmv_fast_type));
+    if (buf == NULL) {
+        res = -14;
+        goto done;
+    }
+    p_gt = gt_word_alloc(1, buf + MAX_GLEN, 
+        sizeof(mmv_fast_type) - MAX_GLEN * sizeof(uint32_t));
+    len_g = res = reduce_v_g(pm, buf, MAX_GLEN, mode);
+    if (res < 0) goto done;
+    res = gt_word_append(p_gt, buf, len_g);
+    if (res < 0) goto done;
+    res = gt_word_reduce(p_gt);
+    if (res < 0) goto done;
+    if (mode & 4 && g) {
+        len_g = gt_word_length(p_gt);
+        if (len_g > lg) {
+            res = -15;
+            goto done;
+        }
+        res = gt_word_store(p_gt, g, len_g);
+        if (res < 0) goto done;
+    }
+    if (mode & 0x8 && gi) res = gt_word_compress(p_gt, gi);    
+
+done:
+    mm_op_fast_dealloc(&m1);
+    gt_word_free(p_gt); 
+    if (buf) mm_op_fast_buffer_free(buf, sizeof(mmv_fast_type));
+    return res;
+}
+     
+
+
 
 
 

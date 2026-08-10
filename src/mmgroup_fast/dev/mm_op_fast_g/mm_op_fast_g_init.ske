@@ -55,13 +55,12 @@ ALIGNED(64) struct mm_fast_g_type {
 #define FLAG_SHORT    ((int64_t)0x2ULL)
 #define FLAG_MAT      ((int64_t)0x4ULL)
 #define FLAG_REDUCED  ((int64_t)0x8ULL)
-#define FLAG_ASINT    ((int64_t)0x10ULL)
-#define FLAG_ERROR    ((int64_t)0x20ULL)
-#define FLAG_FROZEN   ((int64_t)0x40ULL)
-#define FLAG_STABLE   ((int64_t)0x80ULL)
+#define FLAG_ERROR    ((int64_t)0x10ULL)
+#define FLAG_FROZEN   ((int64_t)0x20ULL)
+#define FLAG_STABLE   ((int64_t)0x40ULL)
 
 #define DATA_FLAGS ( \
- FLAG_G | FLAG_SHORT | FLAG_MAT | FLAG_REDUCED | FLAG_ASINT | FLAG_ERROR) 
+ FLAG_G | FLAG_SHORT | FLAG_MAT | FLAG_REDUCED | FLAG_ERROR) 
 
 
 #ifdef __cplusplus
@@ -362,82 +361,27 @@ static int64_t compute_reduced_subgroup(mm_fast_g_type *p_gobj, int64_t flags)
    @brief Add the reduced word to object of type ``mm_fast_g_type``
 
    The function adds the reduced word to an element of the Monster
-   of type ``mm_fast_g_type``. It is assumed that the object has
+   of type ``mm_fast_g_type``, and also the compress integer
+   representation. It is assumed that the object has
    flags ``flags``, as obtained by function ``get_write_access``.
    The function returns the updated flags without changing the flags
    of the object.
 */
 static int64_t compute_reduced(mm_fast_g_type *p_gobj, int64_t flags)
 {
-    int32_t op = 2001, status = -1, len;
-    gt_word_type *p_gt = NULL;
-    mmv_fast_matrix_type mat_copy;
+    int32_t len;
     if (flags & FLAG_REDUCED) return flags;
     if ((flags & FLAG_MAT) == 0) return set_error(p_gobj, 2001, -1);
-    status = mm_op_fast_init(&mat_copy, 3, 4, 1, 0);
-    if (status < 0) return set_error(p_gobj, 2002, status);
-    op = 2003;
-    // copy of p_gobj->mat is destroyed during reduction
-    status = mm_op_fast_copy_data(&p_gobj->mat, &mat_copy);
-    if (status < 0) goto failure;
-    op = 2004;
-    len = mm_axis3_fast_reduce_v_g(&mat_copy, p_gobj->g_reduced,
-        MM_FAST_MAXLEN_G_RED, 1); 
-    mm_op_fast_dealloc(&mat_copy);
-    if (len < 0) return set_error(p_gobj, 2005, len);
-    if (len > MM_FAST_MAXLEN_G_RED) return set_error(p_gobj, 2006, len);
-    mm_group_invert_word(p_gobj->g_reduced, len);
-    p_gobj->len_g_reduced = len;
+    len = mm_axis3_fast_reduce_v_g(&p_gobj->mat, p_gobj->g_reduced,
+        MM_FAST_MAXLEN_G_RED, p_gobj->int_g, 0x1f); 
+    if (len < 0 || len > MM_FAST_MAXLEN_G_RED)
+        return set_error(p_gobj, 2002, len | (uint64_t)(-0x80000000LL));
     p_gobj->len_g = 0;
-
-    p_gt = gt_word_alloc(1, &p_gobj->g, sizeof(&p_gobj->g));
-    if (p_gt == NULL) return set_error(p_gobj, 3002, -2);
-    status = gt_word_append(p_gt, p_gobj->g_reduced, p_gobj->len_g_reduced);
-    if (status < 0)  goto failure;
-    op = 2007;
-    status = gt_word_store(p_gt, p_gobj->g_reduced, MM_FAST_MAXLEN_G_RED);
-    if (status < 0)  goto failure;
-    gt_word_free(p_gt);
     p_gobj->len_g_reduced = len;
     return flags | (FLAG_REDUCED | FLAG_SHORT | FLAG_G);
-
-failure:
-    gt_word_free(p_gt);
-    mm_op_fast_dealloc(&mat_copy);
-    return  set_error(p_gobj, op, status);
 }
 
 
-
-/**
-   @brief Add representation as integer to object of type ``mm_fast_g_type``
-
-   The function adds the representation as integer to an element of the
-   Monster of type ``mm_fast_g_type``. It is assumed that the object has
-   flags ``flags``, as obtained by function ``get_write_access``.
-   The function returns the updated flags without changing the flags
-   of the object.
-*/
-static int64_t compute_fast_int(mm_fast_g_type *p_gobj, int64_t flags)
-{
-    int64_t status = -1, op = 3003;
-    if (flags & FLAG_ASINT) return flags;
-    if ((flags & FLAG_REDUCED) == 0) return set_error(p_gobj, 3001, -1);
-    p_gobj->len_g = 0;
-    gt_word_type *p_gt = gt_word_alloc(1, &p_gobj->g, sizeof(&p_gobj->g));
-    if (p_gt == NULL) return set_error(p_gobj, 3002, -2);
-    status = gt_word_append(p_gt, p_gobj->g_reduced, p_gobj->len_g_reduced);
-    if (status < 0)  goto failure;
-    op = 3004;
-    status = gt_word_compress(p_gt, p_gobj->int_g);
-    if (status < 0)  goto failure;
-    gt_word_free(p_gt);
-    return flags | FLAG_ASINT;
-
-failure:
-    gt_word_free(p_gt);
-    return set_error(p_gobj, op, status);
-}
 
 
 
@@ -466,7 +410,6 @@ int64_t augment(mm_fast_g_type *p_gobj, uint64_t requested)
         return  release_write_access(p_gobj, flags, new_flags);
     }
 
-    if (requested & ~flags & FLAG_ASINT) requested |= FLAG_REDUCED;
     if (requested & ~flags & FLAG_G) requested |= FLAG_REDUCED;
     if (requested & ~flags & FLAG_SHORT) {
         if ((flags & FLAG_G) == 0 || (p_gobj->len_g > MM_FAST_MAXLEN_G_RED))
@@ -485,8 +428,6 @@ int64_t augment(mm_fast_g_type *p_gobj, uint64_t requested)
         new_flags = compute_reduced(p_gobj, new_flags);
     if (new_flags & FLAG_ERROR)
         return  release_write_access(p_gobj, flags, new_flags);
-    if (new_flags & FLAG_ASINT)
-        new_flags = compute_fast_int(p_gobj, new_flags);
     // if (new_flags & FLAG_ERROR)
     //     return  release_write_access(p_gobj, flags, new_flags);
     return  release_write_access(p_gobj, flags, new_flags);
@@ -631,8 +572,8 @@ mmv_fast_matrix_type *fast_g_obj_get_mat(mm_fast_g_type *p_gobj)
 uint64_t *fast_g_obj_as_int_fast(mm_fast_g_type *p_gobj)
 {
     if (p_gobj == NULL) return NULL;
-    uint64_t flags = augment(p_gobj, FLAG_ASINT);
-    if (flags & FLAG_ERROR || (flags & FLAG_ASINT) == 0) return NULL;
+    uint64_t flags = augment(p_gobj, FLAG_REDUCED);
+    if (flags & FLAG_ERROR || (flags & FLAG_REDUCED) == 0) return NULL;
     return  p_gobj->int_g;
 }
 
@@ -720,6 +661,7 @@ int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t 
     if (src_flags & FLAG_REDUCED) {
         for (uint32_t i = 0; i < p_src->len_g_reduced; ++i) {
             p_gobj->g_reduced[i] = p_src->g_reduced[i];
+        for (i = 0; i < 4; ++i) p_gobj->int_g[i] = p_src->int_g[i];
         }
         p_gobj->len_g_reduced = p_src->len_g_reduced;
         p_gobj->len_g = 0;
@@ -733,11 +675,6 @@ int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t 
         new_flags |= FLAG_G;
         if (p_gobj->len_g <= MM_FAST_MAXLEN_G_RED) new_flags |= FLAG_SHORT;
     } 
-    if (src_flags & FLAG_ASINT) {
-        uint32_t i;
-        for (i = 0; i < 4; ++i) p_gobj->int_g[i] = p_src->int_g[i];
-        new_flags |= FLAG_ASINT;
-    }
     if ((flags & (FLAG_G | FLAG_MAT)) == 0) 
         return set_error_ret(p_gobj, 21009, -1);
     atomic_store(p_flags, new_flags);

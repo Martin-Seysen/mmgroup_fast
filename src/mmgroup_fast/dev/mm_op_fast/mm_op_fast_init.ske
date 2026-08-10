@@ -95,7 +95,8 @@ static inline void zero_mode1(mmv_fast_type *pdest)
 
    Currently the following mmodes are supported:
 
-   mode = 0: then p = 3 and nrows <= 4 must hold.
+   mode = 0: structure is delibarately uninitialized
+   mode = 1: then p = 3 and nrows <= 4 must hold.
 */
 // %%EXPORT p
 int32_t mm_op_fast_init(mmv_fast_matrix_type *pm, uint32_t p, uint32_t nrows, uint32_t mode, uint32_t setzero)
@@ -179,6 +180,12 @@ int32_t mm_op_fast_alloc_work(mmv_fast_matrix_type *pm)
              return 0;
      }
 }
+
+
+
+
+
+
 
 
 

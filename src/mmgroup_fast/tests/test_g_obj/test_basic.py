@@ -76,7 +76,7 @@ def test_basics(verbose = 0):
         mat_g1 = MMOpFastMatrix(3,4,1)
         mat_g1.set_vstd(1)
         mat_g1.mul_exp(a0)
-        g1i_red = mat_g1.copy().reduce_v_g()
+        g1i_red = mat_g1.copy().reduce_v_g(mode=1)
         g1_neutral = MM('a', np.concatenate((a0.mmdata, g1i_red)))
         assert g1_neutral == MM()
         if verbose:
@@ -90,7 +90,7 @@ def test_basics(verbose = 0):
                 print(mat_g1.row_as_mmv(i)['A'])
                 ERR = "Error in comparing matrix row %d"
                 raise ValueError(ERR % i)
-        gi_red = mat_g1.reduce_v_g()
+        gi_red = mat_g1.reduce_v_g(mode=1)
         g_neutral = MM('a', np.concatenate((a0.mmdata, gi_red)))
         assert g_neutral == MM()
         if verbose:
