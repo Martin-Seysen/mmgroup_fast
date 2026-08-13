@@ -12,7 +12,7 @@ cdef class MMOpFastG:
         7: "Internal error in method _augment",
     }
     _MAXEXP = 1 << 62
-    FLAG_ERROR = 0x20
+    FLAG_ERROR = 0x10
     cdef mm_fast_g_type *ptr
 
     def __cinit__(self, *args, **kwds):
@@ -26,7 +26,10 @@ cdef class MMOpFastG:
 
     def __init__(self, *g):
         if len(g):
-            self.mulexp(MM0(*g))
+            try:
+                self.mulexp(MM0(*g))
+            except:
+                self.mulexp(g)
 
     def _display_flags(self):
         cdef int64_t status[5]
@@ -54,7 +57,7 @@ cdef class MMOpFastG:
         cdef uint32_t *my_g
         cdef uint32_t my_len, i
         my_g = fast_g_obj_get_g(self.ptr, reduced, &my_len)
-        if  my_g == NULL:
+        if my_g == NULL:
             self._chk(-1, 3)
         arr = np.empty(my_len, dtype=np.uint32)
         for i in range(my_len):
@@ -65,13 +68,11 @@ cdef class MMOpFastG:
     def mmdata(self):
         return self.g(1)
 
-
     @property
     def inverse_mmdata(self):
         mm = self.g(1)
         mm_group_invert_word(mm.data, len(mm));
         return mm
-
 
     def _augment(self, int64_t flags, int64_t kill=0):
         flags = fast_g_obj_augment(self.ptr, flags, kill)
@@ -79,7 +80,6 @@ cdef class MMOpFastG:
             self._display_flags()
             raise ValueError(self.ERRORS[7])
         return flags
-
 
     def mat(self):
         cdef mmv_fast_matrix_type *pmat = fast_g_obj_get_mat(self.ptr)
@@ -92,7 +92,6 @@ cdef class MMOpFastG:
 
     def mmv3(self, i):
         return self.mat().row_as_mmv(i)
-
 
     def as_int(self):
         """Warning: not compatible to method as_int of class MM"""
@@ -113,7 +112,7 @@ cdef class MMOpFastG:
         cdef int32_t n = fast_g_obj_nonneutral(self.ptr, reduce)
         if -1 <= n <= 1:
             return n
-            self._chk(-1, 6)
+        self._chk(-1, 6)
 
     @cython.boundscheck(False)
     def mulexp(self, other, int32_t e = 1):
@@ -146,7 +145,6 @@ cdef class MMOpFastG:
         cdef int32_t status = fast_g_obj_copy(myptr, self.ptr, g_only)
         mycopy._chk(status, 2)
         return mycopy
-        fast_g_obj_copy
 
 
     def exp(self, e):
@@ -166,8 +164,6 @@ cdef class MMOpFastG:
         mycopy._chk(status, 1)
         return mycopy
         
-
-
     def __mul__(self, other):
         return self.copy().mulexp(other)
 
@@ -187,8 +183,7 @@ cdef class MMOpFastG:
            return self.exp(other)
         else:
            return self.conj(other)
-                
-                
+
     def raw_str_word(self):
         """Convert group atom ``g`` to a string
 

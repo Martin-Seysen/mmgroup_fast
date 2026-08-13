@@ -6,7 +6,7 @@ import pytest
 
 from mmgroup.clifford12 import uint64_bit_len
 from mmgroup_fast.mm_op_fast import MMOpFastG
-from mmgroup import MM0, MMV, MM
+from mmgroup import MM0, MMV, MM, MM_from_int
 from mmgroup_fast.mm_op_fast import MMOpFastMatrix
 
 
@@ -127,4 +127,20 @@ def test_exp(verbose=0):
     do_test_exp(5, -5, verbose)
 
 
-
+@pytest.mark.mm_op
+def test_reduce_v_g():
+    for i in range(3):
+        m = MM('r')
+        print(m)
+        mm = MMOpFastMatrix(3,4,1)
+        mm.set_vstd(hash = 1)
+        mm.mul_exp(m)
+        mm_g = MM('a', mm.reduce_v_g(mode = 0x17))
+        assert mm_g == m
+        ii = mm.reduce_v_g_as_int()
+        assert MM_from_int(ii) == m, ii
+ 
+        a = MMOpFastG(m)
+        assert MM('a', a.mmdata) == m
+        n = a.as_int()
+        assert MM_from_int(n) == m

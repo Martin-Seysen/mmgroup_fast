@@ -728,7 +728,8 @@ static inline int32_t subtract_vstd(mmv_fast_matrix_type *pm)
 **********************************************************************/
 
 /// @cond DO_NOT_DOCUMENT 
-     #define MAX_GLEN 96    
+     #define MAX_GLEN 128
+     #define ALLOC_BUFSIZE 0x10000
 
 /**
    @brief Workhorse for function ``mm_axis3_fast_reduce_v_g``.
@@ -799,51 +800,51 @@ reduce_v_g(mmv_fast_matrix_type *pm, uint32_t *g, uint32_t lg, uint32_t mode)
 // %%EXPORT p
 int32_t mm_axis3_fast_reduce_v_g(mmv_fast_matrix_type *pm, uint32_t *g, uint32_t lg, uint64_t *gi, uint32_t mode)
 {
-    int32_t res;
+    int32_t res = -1;
     uint32_t len_g;
-    mmv_fast_matrix_type m1;
-    mm_op_fast_init(&m1, 0, 0, 0, 0);
+    mmv_fast_matrix_type m1, *pm1 = NULL;
     uint32_t *buf = NULL;
     gt_word_type *p_gt = NULL;
     if (mode & 0x10) {
         res = mm_op_fast_init(&m1, 3, 4, 1, 0);
         if (res < 0) goto done;
-        res = mm_op_fast_copy_data(pm, &m1);
+        pm1 = &m1;
+        res = mm_op_fast_copy_data(pm, pm1);
         if (res < 0) goto done;
-        pm = &m1;
+        pm = pm1;
     }
-    if ((mode & 0xc0) == 0) {
+    if ((mode & 0xc) == 0) {
         res = reduce_v_g(pm, g, lg, mode);
         goto done;
     }
-    buf = mm_op_fast_buffer_alloc(sizeof(mmv_fast_type));
-    if (buf == NULL) {
-        res = -14;
-        goto done;
-    }
+
+    buf = mm_op_fast_buffer_alloc(ALLOC_BUFSIZE);
+    res = -14;
+    if (buf == NULL) goto done;
     p_gt = gt_word_alloc(1, buf + MAX_GLEN, 
-        sizeof(mmv_fast_type) - MAX_GLEN * sizeof(uint32_t));
+        ALLOC_BUFSIZE - MAX_GLEN * sizeof(uint32_t) - 64);
+    res = -15;
+    if (p_gt == NULL) goto done;
     len_g = res = reduce_v_g(pm, buf, MAX_GLEN, mode);
     if (res < 0) goto done;
     res = gt_word_append(p_gt, buf, len_g);
     if (res < 0) goto done;
     res = gt_word_reduce(p_gt);
     if (res < 0) goto done;
-    if (mode & 4 && g) {
+    if ((mode & 8) && (gi != NULL)) res = gt_word_compress(p_gt, gi);
+    if (res < 0) goto done;
+    if (g != NULL) {
         len_g = gt_word_length(p_gt);
-        if (len_g > lg) {
-            res = -15;
-            goto done;
-        }
+        res = -16;
+        if (len_g > lg)  goto done;
         res = gt_word_store(p_gt, g, len_g);
         if (res < 0) goto done;
-    }
-    if (mode & 0x8 && gi) res = gt_word_compress(p_gt, gi);    
+    } else res = 0;
 
 done:
-    mm_op_fast_dealloc(&m1);
-    gt_word_free(p_gt); 
-    if (buf) mm_op_fast_buffer_free(buf, sizeof(mmv_fast_type));
+    if (pm1)  mm_op_fast_dealloc(pm1);
+    if (p_gt) gt_word_free(p_gt);
+    if (buf) mm_op_fast_buffer_free(buf, ALLOC_BUFSIZE);
     return res;
 }
      

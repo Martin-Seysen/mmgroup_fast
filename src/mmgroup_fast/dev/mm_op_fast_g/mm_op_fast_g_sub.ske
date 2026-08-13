@@ -89,6 +89,8 @@ int32_t exp_n0(uint32_t *res, uint32_t *g, uint32_t lg, int32_t e)
 }
 
 
+#define ALLOC_BUFSIZE 0x10000
+
 /// @endcond
 
 
@@ -105,13 +107,17 @@ int32_t exp_n0(uint32_t *res, uint32_t *g, uint32_t lg, int32_t e)
    subgroup of the Monster, which must be \f$N_{0}\f$ or \f$G_{x0}\f$.
 
    Buffer ``out`` must have buffer length at least 10.
-   In case of failure the content of ``out`` is not changed. 
+   In case of failure the content of ``out`` is not changed.
+
+   If ``pa`` is not NULL, it must be a buffer of size 4. The the
+   integer representation of the result is stored in ``pa`` as
+   described in file ``mm_compress.c`` in the ``mmgroup`` pacakage.
 */
 // %%EXPORT p
-int32_t fast_g_obj_subgroup_mul_e(uint32_t *g, uint32_t lg, int32_t eg, uint32_t *h, uint32_t lh, int32_t eh, uint32_t *out)
+int32_t fast_g_obj_subgroup_mul_e(uint32_t *g, uint32_t lg, int32_t eg, uint32_t *h, uint32_t lh, int32_t eh, uint32_t *out, uint64_t *pa)
 {
-    uint32_t buf[10], st = fast_g_obj_elem_in_subgroup(g, lg)
-                         | fast_g_obj_elem_in_subgroup(h, lh);
+    uint32_t buf[10], st = fast_g_obj_elem_in_subgroup(g, lg);
+    if ((st & 3) != 3) st |= fast_g_obj_elem_in_subgroup(h, lh);
     int32_t res = -1;
     if (lg == 0 || eg == 0) {
         eg = eh; lg = lh; g = h; 
@@ -153,9 +159,21 @@ int32_t fast_g_obj_subgroup_mul_e(uint32_t *g, uint32_t lg, int32_t eg, uint32_t
             mm_group_n_mul_element(elem_g, elem_h, elem_g);
         }
         res = mm_group_n_to_word_std(elem_g, buf);
-        if (res< 0) return res;
+        if (res < 0) return res;
     }
     for (int i = 0; i < res; ++i) out[i] = buf[i];
+    if (res >= 0 && pa != NULL) {
+        uint32_t *buf = mm_op_fast_buffer_alloc(ALLOC_BUFSIZE);
+        gt_word_type *p_gt = gt_word_alloc(1, buf, ALLOC_BUFSIZE);
+        if (p_gt) {
+            int32_t status = gt_word_append(p_gt, out, res);
+            if (status >= 0)  status = gt_word_reduce(p_gt);
+            if (status >= 0)  status = gt_word_compress(p_gt, pa);
+            gt_word_free(p_gt);
+            if (status < 0) res = status;
+        } else res = -1;
+        if (buf) mm_op_fast_buffer_free(buf, ALLOC_BUFSIZE);
+    }
     return res;
 }
 

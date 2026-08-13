@@ -349,7 +349,7 @@ static int64_t compute_reduced_subgroup(mm_fast_g_type *p_gobj, int64_t flags)
     if (flags & ~FLAG_G) return flags;
     if (flags & FLAG_REDUCED) return flags;
     int32_t res = fast_g_obj_subgroup_mul_e(p_gobj->g, p_gobj->len_g, 1,
-                    NULL, 0, 0, p_gobj->g_reduced);
+                    NULL, 0, 0, p_gobj->g_reduced, p_gobj->int_g);
     if (res < 0) return flags;
     p_gobj->len_g_reduced = res;
     return flags | (FLAG_REDUCED | FLAG_SHORT | FLAG_G);    
@@ -661,8 +661,8 @@ int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t 
     if (src_flags & FLAG_REDUCED) {
         for (uint32_t i = 0; i < p_src->len_g_reduced; ++i) {
             p_gobj->g_reduced[i] = p_src->g_reduced[i];
-        for (i = 0; i < 4; ++i) p_gobj->int_g[i] = p_src->int_g[i];
         }
+        for (uint32_t i = 0; i < 4; ++i) p_gobj->int_g[i] = p_src->int_g[i];
         p_gobj->len_g_reduced = p_src->len_g_reduced;
         p_gobj->len_g = 0;
         new_flags |= FLAG_REDUCED | FLAG_SHORT | FLAG_G;
@@ -725,7 +725,7 @@ int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
         uint32_t *pg = (flags & FLAG_REDUCED)
                 ? p_gobj->g_reduced : p_gobj->g;
         int32_t status = fast_g_obj_subgroup_mul_e(pg, lg, 1,
-            g, len_g, e,  p_gobj->g_reduced);
+            g, len_g, e, p_gobj->g_reduced, p_gobj->int_g);
         if (status >= 0) {
             p_gobj->len_g_reduced = status;
             atomic_store(p_flags, flags | FLAG_REDUCED | FLAG_SHORT);

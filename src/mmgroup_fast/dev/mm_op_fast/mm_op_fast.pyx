@@ -14,6 +14,7 @@ from mmgroup import MMVector, MM0
 from mmgroup.generators import mm_group_invert_word
 
 
+
 import numpy as np
 from libc.string cimport memcpy 
 from mm_op_fast cimport mm_op_fast_init,  mm_op_fast_dealloc
@@ -84,6 +85,14 @@ for i, s in enumerate(ORBIT_TYPES):
 def mm_axis3_fast_orbit_dict():
     return ORBIT_DICT
 
+
+
+cdef object mm_compress_array_to_int(const uint64_t *a):
+    cdef Py_ssize_t i
+    cdef object result = 0
+    for i in range(3, -1, -1):
+        result = (result << 64) + a[i]
+    return result
 
 cdef class MMOpFastMatrix:
     cdef mmv_fast_matrix_type m 
@@ -265,19 +274,15 @@ cdef class MMOpFastMatrix:
         return a[:status]    
 
     def reduce_v_g_as_int(self):
-        cdef int32_t j
-        a = np.zeros(80, dtype = np.uint32)
-        cdef uint32_t[:] r = a
-        ii = np.zeros(4, dtype = np.uint64)
-        cdef uint64_t[:] pi = ii
+        cdef uint32_t d[80]
+        cdef uint32_t[:] d_view = d
+        cdef uint64_t a[4]
+        cdef uint64_t[:] a_view = a
         cdef int32_t status
-        status = mm_axis3_fast_reduce_v_g(&self.m, &r[0], len(a), &pi[0], 0x1f);
+        status = mm_axis3_fast_reduce_v_g(&self.m, &d_view[0], 80, &a_view[0], 0x1b);
         assert status >= 0, status
-        i = int(r[3])
-        for j in range(2, -1, -2):   
-            i = (i << 64) + int(r[j])
-        return i
-
+        return (int(a_view[0]) + (int(a_view[1]) << 64) +
+             (int(a_view[2]) << 128) + (int(a_view[3]) << 192))
 
     def dump(self):
         return MMOpFastMatrixDump(self)
