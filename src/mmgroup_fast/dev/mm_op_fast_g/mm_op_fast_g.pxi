@@ -102,6 +102,18 @@ cdef class MMOpFastG:
         return (int(a[0]) + (int(a[1]) << 64) +
              (int(a[2]) << 128) + (int(a[3]) << 192))
 
+    def as_int_array(self):
+        """Warning: not compatible to method as_int of class MM"""
+        cdef uint64_t *pa
+        a = np.zeros(4, dtype = np.uint64)
+        pa = fast_g_obj_as_int_fast(self.ptr)
+        if pa == NULL:
+            self._chk(-1, 5)
+        cdef uint32_t i
+        for i in range(4):
+            a[i] = pa[i]
+        return a
+
     def chk_neutral(self, uint32_t reduce = True):
         """Fast check if object is the neutral element
 
