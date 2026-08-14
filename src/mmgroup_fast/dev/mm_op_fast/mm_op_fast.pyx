@@ -56,7 +56,7 @@ from mm_op_fast cimport mm_op_fast_buffer_test_stop
 from mm_op_fast cimport fast_g_obj_new
 from mm_op_fast cimport fast_g_obj_delete
 from mm_op_fast cimport fast_g_obj_freeze
-from mm_op_fast cimport fast_g_obj_get_g
+from mm_op_fast cimport fast_g_obj_store_g
 from mm_op_fast cimport fast_g_obj_copy
 from mm_op_fast cimport fast_g_obj_mulexp
 from mm_op_fast cimport fast_g_obj_mulexp_obj

@@ -475,6 +475,7 @@ int64_t fast_g_obj_augment(mm_fast_g_type *p_gobj, uint64_t requested, uint64_t 
 * Obtain data of an object of type ``mm_fast_g_type``
 **********************************************************************/
 
+/// @cond DO_NOT_DOCUMENT
 
 /**
    @brief Obtain word of generators of object of type ``mm_fast_g_type``
@@ -486,7 +487,7 @@ int64_t fast_g_obj_augment(mm_fast_g_type *p_gobj, uint64_t requested, uint64_t 
    Otherwise we just assert that the length of the word does not
    exceed a certain value.
 */
-// %%EXPORT p
+static inline 
 uint32_t *fast_g_obj_get_g(mm_fast_g_type *p_gobj, uint32_t reduced, uint32_t* p_len)
 {
     int32_t op = 4001;
@@ -509,6 +510,36 @@ failure:
     set_error(p_gobj, op, -1);
     return NULL;
 }
+
+/// @endcond
+
+
+/**
+   @brief Store word of generators of object of type ``mm_fast_g_type``
+
+   The function stores a word of generators for an element ``*p_gobj``
+   of the Monster type ``mm_fast_g_type`` in the buffer ``pg`` of
+   size ``lg``. It returns the actual length of that word or a
+   negative value in case of an error. If ``reduced`` is nonzero,
+   the stored word is reduced. Otherwise we just assert that the
+   length of the word does not exceed a certain value.
+*/
+// %%EXPORT p
+int32_t fast_g_obj_store_g(mm_fast_g_type *p_gobj, uint32_t reduced, uint32_t* pg, uint32_t lg)
+{
+    uint32_t len, i;
+    uint32_t *pg0 = fast_g_obj_get_g(p_gobj, reduced, &len);
+    if (pg0 == NULL) return -1;
+    if (len > lg && reduced == 0) {
+        pg0 = fast_g_obj_get_g(p_gobj, 1, &len);
+        if (pg0 == NULL) return -1;
+        if (len > lg) return -2;
+    }
+    for (i = 0; i < len; ++i) pg[i] = pg0[i];
+    return len;
+}
+
+
 
 
 /**
@@ -640,7 +671,7 @@ failure:
 // %%EXPORT p
 int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t g_only)
 {
-    int64_t status = -1;
+    int32_t status = -1;
     if (p_gobj == NULL) return -1;
     if (p_src == NULL) set_error_ret(p_gobj, 21001, -1);
     _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
@@ -651,14 +682,11 @@ int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t 
          return set_error_ret(p_gobj, 21002, -1);
     if (g_only) {
         atomic_store(p_flags, 0);  // paranoia
-        uint32_t len_src = 0;
-        uint32_t *g_src = fast_g_obj_get_g(p_src, 0, &len_src);
-        if (g_src == NULL) return set_error_ret(p_gobj, 21002, -1);
-        for (uint32_t i = 0; i < len_src; ++i) p_gobj->g[i] = g_src[i];
-        p_gobj->len_g = len_src;
+        status = fast_g_obj_store_g(p_src, 0, p_gobj->g, MM_FAST_MAXLEN_G_RED);
+        if (status < 0) return set_error_ret(p_gobj, 21002, -1);
+        p_gobj->len_g = (uint32_t)status;
         p_gobj->len_g_reduced = 0;
-        new_flags = FLAG_G;
-        if (p_gobj->len_g <= MM_FAST_MAXLEN_G_RED) new_flags |= FLAG_SHORT;
+        new_flags = FLAG_G | FLAG_SHORT;
         atomic_store(p_flags, new_flags);
         return 0;
     }
@@ -669,22 +697,18 @@ int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t 
         if (status < 0) return set_error_ret(p_gobj, 21003, status);
         new_flags |= FLAG_MAT;
     } 
-    if (src_flags & FLAG_REDUCED) {
-        for (uint32_t i = 0; i < p_src->len_g_reduced; ++i) {
-            p_gobj->g_reduced[i] = p_src->g_reduced[i];
-        }
+    uint32_t reduced = (src_flags & FLAG_REDUCED) != 0;
+    p_gobj->len_g_reduced = p_gobj->len_g = 0;
+    status = fast_g_obj_store_g(p_src, reduced, 
+          reduced ? p_gobj->g_reduced : p_gobj->g, MM_FAST_MAXLEN_G_RED);
+    if (status < 0) return set_error_ret(p_gobj, 21008, -1);
+    if (reduced) {
         for (uint32_t i = 0; i < 4; ++i) p_gobj->int_g[i] = p_src->int_g[i];
-        p_gobj->len_g_reduced = p_src->len_g_reduced;
-        p_gobj->len_g = 0;
+        p_gobj->len_g_reduced = status;
         new_flags |= FLAG_REDUCED | FLAG_SHORT | FLAG_G;
     } else if (src_flags & FLAG_G)  {
-        for (uint32_t i = 0; i < p_src->len_g; ++i) {
-            p_gobj->g[i] = p_src->g[i];
-        }
-        p_gobj->len_g_reduced = 0;
-        p_gobj->len_g = p_src->len_g;
-        new_flags |= FLAG_G;
-        if (p_gobj->len_g <= MM_FAST_MAXLEN_G_RED) new_flags |= FLAG_SHORT;
+        p_gobj->len_g = status;
+        new_flags |= FLAG_G | FLAG_SHORT;
     } 
     if ((flags & (FLAG_G | FLAG_MAT)) == 0) 
         return set_error_ret(p_gobj, 21009, -1);
@@ -820,16 +844,10 @@ mulexp_obj(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int32_t e)
     if (p_gobj == NULL) return -1;
     if (e == 0) return 0;
     if (p_src == NULL) return set_error_ret(p_gobj, 31021, -1);
-    uint32_t len_g, g_buf[MM_FAST_MAXLEN_G_RED];
-    uint32_t *pg = fast_g_obj_get_g(p_src, 0, &len_g);
-    if (pg == NULL) return set_error_ret(p_gobj, 31022, -1);
-    if (len_g > MM_FAST_MAXLEN_G_RED)
-         return set_error_ret(p_gobj, 31023, -1);
-    if (p_gobj == p_src) {
-        for (uint32_t i = 0; i < len_g; ++i) g_buf[i] = pg[i];
-        pg = g_buf;
-    }
-    return mulexp(p_gobj, pg, len_g, e);
+    uint32_t g_buf[MM_FAST_MAXLEN_G_RED];
+    int32_t status = fast_g_obj_store_g(p_src, 0, g_buf, MM_FAST_MAXLEN_G_RED);
+    if (status < 0) return set_error_ret(p_gobj, 31022, status);
+    return mulexp(p_gobj, g_buf, status, e);
 }
 
 

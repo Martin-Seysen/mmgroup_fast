@@ -53,16 +53,14 @@ cdef class MMOpFastG:
         fast_g_obj_freeze(self.ptr)
         return self
 
-    def g(self, uint32_t reduced = False):
-        cdef uint32_t *my_g
-        cdef uint32_t my_len, i
-        my_g = fast_g_obj_get_g(self.ptr, reduced, &my_len)
-        if my_g == NULL:
-            self._chk(-1, 3)
-        arr = np.empty(my_len, dtype=np.uint32)
-        for i in range(my_len):
-            arr.data[i] = my_g[i]
-        return arr
+    def g(self, uint32_t reduced = True):
+        cdef int32_t lg
+        arr = np.empty(64, dtype=np.uint32)
+        cdef uint32_t[::1] a_view = arr      
+        lg = fast_g_obj_store_g(self.ptr, reduced, &a_view[0], 64)
+        if lg < 0:
+            self._chk(lg, 3)
+        return arr[:lg]
 
     @property
     def mmdata(self):
