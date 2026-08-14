@@ -87,12 +87,22 @@ static uint64_t
 get_flags(mm_fast_g_type *p_gobj)
 // Return flags of object *p_gobj of type mm_fast_g_typ
 {
+    if (p_gobj == NULL) return FLAG_ERROR & FLAG_FROZEN;
     _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
     uint64_t flags = atomic_load_explicit(
         p_flags,
         memory_order_acquire);
     return flags;
 }
+
+
+static int32_t is_mutable(uint64_t flags)
+// Return 1 if ``flags`` indicate that object is mutable, 0 otherwise. 
+// ``flags`` should be as retruend by function ``get_flags``.
+{
+    return (flags & (FLAG_ERROR | FLAG_FROZEN)) == 0;
+}
+
 
 
 /**
@@ -108,10 +118,8 @@ get_flags(mm_fast_g_type *p_gobj)
 // %%EXPORT p
 void fast_g_obj_get_status(mm_fast_g_type *p_gobj, int64_t *p_status)
 {
-     if (p_gobj == NULL) {
-         memset(p_status, 0, 5 * sizeof(uint32_t));
-         return;
-     }
+     memset(p_status, 0, 5 * sizeof(uint32_t));
+     if (p_gobj == NULL) return;
      p_status[0] = get_flags(p_gobj);
      p_status[1] = p_gobj->sub_op;
      p_status[2] = p_gobj->substatus;
@@ -130,6 +138,7 @@ get_write_access(mm_fast_g_type *p_gobj, uint64_t requested)
 // write access. We also return without waiting if the object is
 // not (yet) frozen.
 {
+    if (p_gobj == NULL) return FLAG_ERROR & FLAG_FROZEN;
     _Atomic(uint64_t) *p_flags =  get_atomic_p_flags(p_gobj);
     uint64_t flags = atomic_load_explicit(
         p_flags,
@@ -210,6 +219,7 @@ set_error_ret(mm_fast_g_type *p_gobj, int64_t op, int64_t status)
     return -1;
 }
 
+#define ERROR_MUTABLE -11
 
 /// @endcond
 
@@ -461,6 +471,7 @@ int64_t augment(mm_fast_g_type *p_gobj, uint64_t requested)
 // %%EXPORT p
 int64_t fast_g_obj_augment(mm_fast_g_type *p_gobj, uint64_t requested, uint64_t kill)
 {
+    if (p_gobj == NULL) return FLAG_ERROR | FLAG_FROZEN;
     if (kill) {
         uint64_t flags = get_write_access(p_gobj, 0);
         release_write_access(p_gobj, flags, flags & ~(kill & 0xff));
@@ -553,9 +564,9 @@ int32_t fast_g_obj_store_g(mm_fast_g_type *p_gobj, uint32_t reduced, uint32_t* p
 // %%EXPORT p
 int32_t fast_g_obj_nonneutral(mm_fast_g_type *p_gobj, uint32_t reduced)
 {
-    if (p_gobj == NULL) return -2;
-    uint32_t flags = reduced ? augment(p_gobj, FLAG_REDUCED) 
-                   : get_flags(p_gobj); 
+    uint32_t flags = get_flags(p_gobj);
+    if (flags & FLAG_ERROR) return -2;
+    if (reduced) flags = augment(p_gobj, FLAG_REDUCED); 
     if (flags & FLAG_ERROR) return -2;
     if (flags & FLAG_REDUCED) return p_gobj->len_g_reduced != 0; 
     else if (flags & FLAG_G) return p_gobj->len_g ? -1 : 0; 
@@ -593,13 +604,13 @@ mmv_fast_matrix_type *fast_g_obj_get_mat(mm_fast_g_type *p_gobj)
 
    The function computes a integer of at most 231 bit length that
    represents the element ``**p_gobj``  of the Monster in a compressed
-   form. It returns  a pointer to an array ``a`` of 4 entries of
+   form. It  stores this number in an array ``a`` of 4 entries of
    type ``uint64_t``.  Then the computed integer value is the sum
 
    sum     2 ** (64 * i) * a[i] ,
 
-   where i runs from 0 to 3. The function returns NULL in case of
-   failure.
+   where i runs from 0 to 3. The function returns 0 in case of
+   success and a negatve value failure.
 
    Caution:
    The integer value computed by this function differs from the 
@@ -610,12 +621,14 @@ mmv_fast_matrix_type *fast_g_obj_get_mat(mm_fast_g_type *p_gobj)
    function ``mm_compress_pc_expand_int`` in file ``MM_compress.c``. 
 */
 // %%EXPORT p
-uint64_t *fast_g_obj_as_int_fast(mm_fast_g_type *p_gobj)
+int32_t fast_g_obj_store_int_fast(mm_fast_g_type *p_gobj, uint64_t *a)
 {
-    if (p_gobj == NULL) return NULL;
+    if (p_gobj == NULL) return -1;
     uint64_t flags = augment(p_gobj, FLAG_REDUCED);
-    if (flags & FLAG_ERROR || (flags & FLAG_REDUCED) == 0) return NULL;
-    return  p_gobj->int_g;
+    if (flags & FLAG_ERROR || (flags & FLAG_REDUCED) == 0) return -2;
+    uint32_t i;
+    for (i = 0; i < 4; ++i) a[i] = p_gobj->int_g[i];
+    return 0;
 }
 
 
@@ -633,21 +646,15 @@ uint64_t *fast_g_obj_as_int_fast(mm_fast_g_type *p_gobj)
 // %%EXPORT p
 int32_t fast_g_obj_setneutral(mm_fast_g_type *p_gobj)
 {
-    if (p_gobj == NULL) return -1;
-    _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
     uint32_t flags = get_flags(p_gobj);
-    if (flags & (FLAG_ERROR | FLAG_FROZEN)) goto failure;
+    if (is_mutable(flags) == 0) return ERROR_MUTABLE;
+    _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
     atomic_store(p_flags, 0);  // paranoia
     p_gobj->len_g = p_gobj->len_g_reduced = 0;
+    set_int_g_neutral(p_gobj);
     atomic_store(p_flags,
          FLAG_G | FLAG_SHORT | FLAG_REDUCED | FLAG_STABLE);
-    set_int_g_neutral(p_gobj);
     return 0;
-
-failure:
-    set_error(p_gobj, 20001, -1);
-    return -1;
-
 }
 
 
@@ -671,15 +678,13 @@ failure:
 // %%EXPORT p
 int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t g_only)
 {
+    uint32_t flags = get_flags(p_gobj);
+    if (is_mutable(flags) == 0) return ERROR_MUTABLE;
     int32_t status = -1;
-    if (p_gobj == NULL) return -1;
     if (p_src == NULL) set_error_ret(p_gobj, 21001, -1);
     _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
-    uint32_t flags = get_flags(p_gobj);
     uint32_t new_flags = 0;
     uint32_t src_flags = get_flags(p_src);
-    if (flags & (FLAG_ERROR | FLAG_FROZEN))
-         return set_error_ret(p_gobj, 21002, -1);
     if (g_only) {
         atomic_store(p_flags, 0);  // paranoia
         status = fast_g_obj_store_g(p_src, 0, p_gobj->g, MM_FAST_MAXLEN_G_RED);
@@ -739,12 +744,10 @@ int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t 
 */
 int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
 {
-    if (p_gobj == NULL) return -1;
-    _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
     uint32_t flags = get_flags(p_gobj);
+    if (is_mutable(flags) == 0) return ERROR_MUTABLE;
+    _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
     if (e == 0 || len_g == 0) return 0;  
-    if (flags & (FLAG_ERROR | FLAG_FROZEN))
-         return set_error_ret(p_gobj, 31001, -1);
 
     // Compute No of words of of *p_gobj in lg, and |e| * len(g) in llen_g, 
     // abort if |e| * len(g) to be multiplied is too large
@@ -841,9 +844,7 @@ int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
 static inline int32_t 
 mulexp_obj(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int32_t e)
 {
-    if (p_gobj == NULL) return -1;
     if (e == 0) return 0;
-    if (p_src == NULL) return set_error_ret(p_gobj, 31021, -1);
     uint32_t g_buf[MM_FAST_MAXLEN_G_RED];
     int32_t status = fast_g_obj_store_g(p_src, 0, g_buf, MM_FAST_MAXLEN_G_RED);
     if (status < 0) return set_error_ret(p_gobj, 31022, status);
@@ -871,14 +872,12 @@ mulexp_obj(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int32_t e)
 // %%EXPORT p
 int32_t fast_g_obj_setpower(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int64_t e)
 {
+    uint32_t flags = get_flags(p_gobj);
+    if (is_mutable(flags) == 0) return ERROR_MUTABLE;
     int64_t op = 32001, status = -1;
     mm_fast_g_type *f1 = NULL, *f3 = NULL, *f;
-    if (p_gobj == NULL) return -1;
-    uint32_t flags = get_flags(p_gobj);
-    if (flags & (FLAG_ERROR | FLAG_FROZEN)) goto failure;
     if (e == 0) return fast_g_obj_setneutral(p_gobj);
     if (e > 1) {
-         op = 32002;
          if (augment(p_gobj, FLAG_SHORT | FLAG_MAT) & FLAG_ERROR)
              goto failure;
     }
@@ -1045,17 +1044,13 @@ failure:
 // %%EXPORT p
 int32_t fast_g_obj_mulexp_obj(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int32_t e)
 {
-    if (p_gobj == NULL) return -1;
-    if (e == 0) return 0;  
-    if (p_src == NULL) return set_error_ret(p_gobj, 34001, -1);
-    uint32_t flags = get_flags(p_gobj);
-    if (flags & (FLAG_ERROR | FLAG_FROZEN))
-        return set_error_ret(p_gobj, 34002, -1);
-    uint32_t len_src = 0;
-    uint32_t *g_src = fast_g_obj_get_g(p_src, 0, &len_src);
-    if (g_src == NULL) return set_error_ret(p_gobj, 34003, -1);
-    return fast_g_obj_mulexp(p_gobj, g_src, len_src, e);
+    if (e == 0) return 0;
+    uint32_t g_buf[MM_FAST_MAXLEN_G_RED];
+    int32_t status = fast_g_obj_store_g(p_src, 0, g_buf, MM_FAST_MAXLEN_G_RED);
+    if (status < 0) return set_error_ret(p_gobj, 34002, status);
+    return fast_g_obj_mulexp(p_gobj, g_buf, status, e);
 }
+
 
 
 

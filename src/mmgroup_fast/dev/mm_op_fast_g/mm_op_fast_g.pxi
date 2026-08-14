@@ -93,23 +93,16 @@ cdef class MMOpFastG:
 
     def as_int(self):
         """Warning: not compatible to method as_int of class MM"""
-        cdef uint64_t *a
-        a = fast_g_obj_as_int_fast(self.ptr)
-        if a == NULL:
-            self._chk(-1, 5)
+        cdef uint64_t a[4]
+        self._chk(fast_g_obj_store_int_fast(self.ptr, &a[0]), 5)
         return (int(a[0]) + (int(a[1]) << 64) +
              (int(a[2]) << 128) + (int(a[3]) << 192))
 
     def as_int_array(self):
         """Warning: not compatible to method as_int of class MM"""
-        cdef uint64_t *pa
         a = np.zeros(4, dtype = np.uint64)
-        pa = fast_g_obj_as_int_fast(self.ptr)
-        if pa == NULL:
-            self._chk(-1, 5)
-        cdef uint32_t i
-        for i in range(4):
-            a[i] = pa[i]
+        cdef uint64_t[::1] a_view = a
+        self._chk(fast_g_obj_store_int_fast(self.ptr, &a_view[0]), 5)
         return a
 
     def chk_neutral(self, uint32_t reduce = True):
