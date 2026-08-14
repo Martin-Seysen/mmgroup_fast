@@ -8,7 +8,7 @@ from mmgroup.clifford12 import uint64_bit_len
 from mmgroup_fast.mm_op_fast import MMOpFastG
 from mmgroup import MM0, MMV, MM, MM_from_int
 from mmgroup_fast.mm_op_fast import MMOpFastMatrix
-
+from mmgroup_fast.mm_op_fast import fast_g_obj_subgroup_mul_e
 
 MMV3 = MMV(3)
 
@@ -27,6 +27,10 @@ def hex_array(text, arr):
     return "\n".join(lines)
 
 
+#####################################################################
+# Test multiplication of Monster elements in classes
+# MMOpFastG and reduction in class MMOpFastMatrix 
+#####################################################################
 
 def chk_MMOpFastG_equ_mm(a, g, message = "", do_raise = True):
     if not isinstance(a, MMOpFastG):
@@ -97,8 +101,13 @@ def test_basics(verbose = 0):
             print(hex_array("a0", a0.mmdata))
             print(hex_array("a", a.mmdata))
         chk_MMOpFastG_equ_mm(a, a0)
-        assert MM(a0) == MM('a', a.mmdata) # This fails!!!
+        assert MM(a0) == MM('a', a.mmdata)
         del a
+
+
+#####################################################################
+# Test exponentiation of Monster elements in class MMOpFastG 
+#####################################################################
 
 
 
@@ -127,6 +136,12 @@ def test_exp(verbose=0):
     do_test_exp(5, -5, verbose)
 
 
+
+#####################################################################
+# Test conversion of Monster elements to integers in class MMOpFastG 
+#####################################################################
+
+
 @pytest.mark.mm_op
 def test_reduce_v_g():
     for i in range(3):
@@ -144,3 +159,94 @@ def test_reduce_v_g():
         assert MM('a', a.mmdata) == m
         n = a.as_int()
         assert MM_from_int(n) == m
+
+
+
+#####################################################################
+# Test elements of subgoups of Monster in class MMOpFastG  
+#####################################################################
+
+
+def try_subgroup(g, e, h, f):
+    a = np.zeros(4, dtype = np.uint64)
+    gout = np.zeros(10, dtype = np.uint32)
+    res = fast_g_obj_subgroup_mul_e(
+        g.mmdata, len(g.mmdata), e,
+        h.mmdata, len(h.mmdata), f,
+        gout, a
+    )
+    if res < 0:
+        return 0, None
+    n = (int(a[0]) + (int(a[1]) << 64) + (int(a[2]) << 128) 
+        + (int(a[3]) << 196))
+    return n, MM('a', gout[:res])
+
+def subgroup_samples():
+    """Yield tuples g, e, h, f, b with g, h of class MM integers e,f
+
+    Here g, h are elements of the Monster M, that may be in one of the
+    subgroups G_x0 or N_0 of M. Then a test program should that check
+    that  g**e  * h**f  is computed correctly in  class MMOpFastG.
+
+    b is 1 if try_subgroup(g, e, h, f) is expected to succeed and 0
+    otherwise
+    """
+    data = [(MM(), 1, MM(), 1, 1),
+       (MM('r', 'G_x0'), 3, MM('r', 'G_x0'), -1, 1),
+       (MM('r'), 1, MM('r'), 1, 0),
+       (MM('r','N_0'), 1, MM('r'), 1, 0),
+       (MM('r'), 1, MM('r','N_0'), 1, 0),
+       (MM('r', 'G_x0'), 1, MM('r','N_0'), 1, 0),
+       (MM('r', 'N_0'), 1, MM('r','G_x0'), -1, 0),
+       (MM('r', 'N_0'), 3, MM('r','N_x0'), 0, 1),
+       (MM('r', 'N_0'), -4, MM('r', 'N_0'), 2, 1),
+    ]
+    for i in range(2):
+        for x in data:
+            yield x
+
+def one_test_subgroup(g, e, h, f, s, verbose=0):
+    r = MMOpFastG(g) ** e
+    r.mulexp(h, f)
+    i1 = r.as_int()
+    r_ref = MM(g)**e * MM(h)**f
+    mm = MMOpFastMatrix(3,4,1)
+    mm.set_vstd(hash = 1)
+    mm.mul_exp(r_ref)
+    mm_r = MM('a', mm.reduce_v_g(mode = 0x17))
+    ok = mm_r == r_ref
+    i1_ref = mm.reduce_v_g_as_int()
+    ok &= i1 == i1_ref
+    ti, tr = try_subgroup(g, e, h, f)
+    if s:
+        ok &= tr == r_ref
+        ok &= ti ==i1
+    if not ok or verbose:
+        print("g=", g)
+        print("e=", e)
+        print("h=", h)
+        print("f=", f)
+        print("s=", s)
+        if (s and tr != r_ref):
+            print("r obtained directly=\n  ",tr)
+        if (mm_r != r_ref):
+            print("r obtained=\n  ", mm_r)
+        print("r=", r_ref)
+        print("i expected", hex(i1_ref))
+        print(" ", MM_from_int(i1_ref))
+        print("i obtained", hex(i1))
+        print(" ", MM_from_int(i1))
+        if s:
+            print("i subgroup", hex(ti))
+            print(" ", MM_from_int(ti))
+        ERR = "Integer compression of Monster element failed"
+        if not ok:
+            raise ValueError(ERR)
+
+
+@pytest.mark.mm_op
+def test_MM_subgroup(verbose = 0):
+    for i, (g, e, h, f, s) in enumerate(subgroup_samples()):
+        if verbose:
+            print("\nTest", i)
+        one_test_subgroup(g, e, h, f, s,verbose)

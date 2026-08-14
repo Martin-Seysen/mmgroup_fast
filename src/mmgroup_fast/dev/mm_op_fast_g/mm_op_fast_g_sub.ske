@@ -55,7 +55,7 @@ static inline uint32_t fast_g_obj_elem_in_subgroup(uint32_t *g, uint32_t lg)
      uint32_t res = 0;
      for (uint32_t i = 0; i < lg; ++i) {
          uint32_t a = g[i];
-         switch (lg & 0x70000000UL) {
+         switch (a & 0x70000000UL) {
              case 0x50000000UL:
                 res |= (a ^ (a >> 1)) & 1;
                 if (res == 3) return 3;
@@ -65,8 +65,7 @@ static inline uint32_t fast_g_obj_elem_in_subgroup(uint32_t *g, uint32_t lg)
                 if (res == 3) return 3;
                 break;
              case 0x70000000UL:
-                if (res & 0xfffffffULL) return 3;
-                break;
+                return 3;
              default:
                 break;
          }
@@ -88,8 +87,42 @@ int32_t exp_n0(uint32_t *res, uint32_t *g, uint32_t lg, int32_t e)
      return 0; 
 }
 
-
 #define ALLOC_BUFSIZE 0x10000
+
+static inline
+int32_t g_as_int(uint32_t *g, uint32_t lg, uint32_t lmax, uint64_t *pa)
+// Let ``g`` be the element of the Monster in buffer ``g`` of length
+// length ``lg``. ``pa`` must be a buffer of size 4. Then the integer
+// representation of the result is stored in ``pa`` as described in
+// file ``mm_compress.c`` in the ``mmgroup`` pacakage. A reduced form
+// of the word ``g`` is stored in buffer ``g``. Here it is assumed
+// that buffer ``g`` may stored up to ``lmax`` entries.
+// The function returns the length of the reduced word in case of
+// success and a negative value in case of failure.
+{
+    uint32_t *buf = mm_op_fast_buffer_alloc(ALLOC_BUFSIZE);
+    gt_word_type *p_gt = gt_word_alloc(1, buf, ALLOC_BUFSIZE);
+    int32_t status = -11;
+    if (p_gt == NULL) goto done;
+    status = gt_word_append(p_gt, g, lg);
+    if (status >= 0) status = gt_word_reduce(p_gt);
+    if (pa && status >= 0) status = gt_word_compress(p_gt, pa);
+    if (status >= 0) status = gt_word_store(p_gt, g, lmax);
+done:
+    gt_word_free(p_gt);
+    if (buf) mm_op_fast_buffer_free(buf, ALLOC_BUFSIZE);
+    return status;
+}
+
+
+
+
+static inline void set_int_g_neutral(uint64_t *a)
+// Set a to the integer code of the neutral element
+{
+    a[0] = MAT24_ORDER;
+    a[1] = a[2] = a[3] = 0;
+}
 
 /// @endcond
 
@@ -109,24 +142,39 @@ int32_t exp_n0(uint32_t *res, uint32_t *g, uint32_t lg, int32_t e)
    Buffer ``out`` must have buffer length at least 10.
    In case of failure the content of ``out`` is not changed.
 
-   If ``pa`` is not NULL, it must be a buffer of size 4. The the
+   If ``pa`` is not NULL, it must be a buffer of size 4. Then the
    integer representation of the result is stored in ``pa`` as
    described in file ``mm_compress.c`` in the ``mmgroup`` pacakage.
 */
-// %%EXPORT p
+// %%EXPORT px
 int32_t fast_g_obj_subgroup_mul_e(uint32_t *g, uint32_t lg, int32_t eg, uint32_t *h, uint32_t lh, int32_t eh, uint32_t *out, uint64_t *pa)
 {
-    uint32_t buf[10], st = fast_g_obj_elem_in_subgroup(g, lg);
-    if ((st & 3) != 3) st |= fast_g_obj_elem_in_subgroup(h, lh);
+    uint32_t st = eg ? fast_g_obj_elem_in_subgroup(g, lg) : 0;
+    uint32_t buf[10];
+    if ((st & 3) != 3 && eh) st |= fast_g_obj_elem_in_subgroup(h, lh);
     int32_t res = -1;
     if (lg == 0 || eg == 0) {
         eg = eh; lg = lh; g = h; 
         lh = eh = 0;
-        if (lg == 0 || eg == 0) return 0;
-    };
+        if (lg == 0 || eg == 0) {
+             if (pa) set_int_g_neutral(pa);
+             return 0;
+        }
+    }
     if ((st & 3UL) == 3UL) return -1;
-               
-    if (st & 2) {
+    if ((st & 2UL) == 0) {
+        uint32_t elem_g[5], elem_h[5];
+        res = exp_n0(elem_g, g, lg, eg);
+        if (res < 0) return res;
+        if (eh) {
+            // same procedure with elem_h
+            res = exp_n0(elem_h, h, lh, eh);
+            if (res < 0) return res;
+            mm_group_n_mul_element(elem_g, elem_h, elem_g);
+        }
+        res = mm_group_n_to_word(elem_g, buf);
+        if (res < 0) return res;
+    } else {
         uint64_t elem_g[26], elem_h[26];
         // Convert word ``g`` to element ``elem`` 
         res = xsp2co1_set_elem_word(elem_g, g, lg);
@@ -144,36 +192,12 @@ int32_t fast_g_obj_subgroup_mul_e(uint32_t *g, uint32_t lg, int32_t eg, uint32_t
             res = xsp2co1_mul_elem(elem_g, elem_h, elem_g);
             if (res< 0) return res;
         }
-        res = xsp2co1_elem_to_word(elem_g, g);
-        if (res< 0) return res;
-        res = xsp2co1_reduce_word(g, res, buf);
-        if (res< 0) return res;
-    } else {
-        uint32_t elem_g[5], elem_h[5];
-        res = exp_n0(elem_g, g, lg, eg);
-        if (res < 0) return res;
-        if (eh) {
-            // same procedure with elem_h
-            res = exp_n0(elem_h, h, lh, eh);
-            if (res < 0) return res;
-            mm_group_n_mul_element(elem_g, elem_h, elem_g);
-        }
-        res = mm_group_n_to_word_std(elem_g, buf);
+        res = xsp2co1_elem_to_word(elem_g, buf);
         if (res < 0) return res;
     }
-    for (int i = 0; i < res; ++i) out[i] = buf[i];
-    if (res >= 0 && pa != NULL) {
-        uint32_t *buf = mm_op_fast_buffer_alloc(ALLOC_BUFSIZE);
-        gt_word_type *p_gt = gt_word_alloc(1, buf, ALLOC_BUFSIZE);
-        if (p_gt) {
-            int32_t status = gt_word_append(p_gt, out, res);
-            if (status >= 0)  status = gt_word_reduce(p_gt);
-            if (status >= 0)  status = gt_word_compress(p_gt, pa);
-            gt_word_free(p_gt);
-            if (status < 0) res = status;
-        } else res = -1;
-        if (buf) mm_op_fast_buffer_free(buf, ALLOC_BUFSIZE);
-    }
+    if (res >= 0) res = g_as_int(buf, res, 10, pa);
+    if (res > 10) res = -1;
+    if (res >= 0) for (int i = 0; i < res; ++i) out[i] = buf[i];
     return res;
 }
 

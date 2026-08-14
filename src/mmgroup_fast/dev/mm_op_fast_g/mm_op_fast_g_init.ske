@@ -218,6 +218,15 @@ set_error_ret(mm_fast_g_type *p_gobj, int64_t op, int64_t status)
 * Create and delete a buffer for an object of type ``mm_fast_g_type``
 **********************************************************************/
 
+/// @cond DO_NOT_DOCUMENT
+
+static inline void set_int_g_neutral(mm_fast_g_type *p_gobj)
+// Set p_gobj->int_g to the integer code of the neutral element
+{
+    p_gobj->int_g[0] = MAT24_ORDER;
+    p_gobj->int_g[1] = p_gobj->int_g[2] = p_gobj->int_g[3] = 0;
+}
+/// @endcond
 
 
 
@@ -245,6 +254,7 @@ mm_fast_g_type *fast_g_obj_new()
          FLAG_G | FLAG_SHORT | FLAG_REDUCED | FLAG_STABLE);
     p_gobj->len_g = p_gobj->len_g_reduced = 0;
     p_gobj->sub_op = p_gobj->substatus = 0;
+    set_int_g_neutral(p_gobj);
     return p_gobj;
 }
 
@@ -600,6 +610,7 @@ int32_t fast_g_obj_setneutral(mm_fast_g_type *p_gobj)
     p_gobj->len_g = p_gobj->len_g_reduced = 0;
     atomic_store(p_flags,
          FLAG_G | FLAG_SHORT | FLAG_REDUCED | FLAG_STABLE);
+    set_int_g_neutral(p_gobj);
     return 0;
 
 failure:
@@ -643,7 +654,7 @@ int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t 
         uint32_t len_src = 0;
         uint32_t *g_src = fast_g_obj_get_g(p_src, 0, &len_src);
         if (g_src == NULL) return set_error_ret(p_gobj, 21002, -1);
-        for (uint32_t i = 0; i < len_src; ++i) p_gobj->g[i] = p_src->g[i];
+        for (uint32_t i = 0; i < len_src; ++i) p_gobj->g[i] = g_src[i];
         p_gobj->len_g = len_src;
         p_gobj->len_g_reduced = 0;
         new_flags = FLAG_G;
@@ -860,7 +871,7 @@ int32_t fast_g_obj_setpower(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, int64
         uint32_t g_len = 0;
         uint32_t *p_g = fast_g_obj_get_g(p_gobj, 0, &g_len);
         if (p_g == NULL) goto failure;
-        mm_group_invert_word(p_gobj->g, g_len);
+        mm_group_invert_word(p_g, g_len);
         ue = -ue;
     }
     if (ue < 6) return mulexp_obj(p_gobj, p_gobj, ue - 1);
