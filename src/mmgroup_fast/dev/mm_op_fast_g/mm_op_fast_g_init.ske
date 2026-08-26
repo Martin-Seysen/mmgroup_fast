@@ -50,13 +50,14 @@ ALIGNED(64) struct mm_fast_g_type {
 };
 
 
-#define FLAG_G        ((int64_t)0x1ULL)
-#define FLAG_SHORT    ((int64_t)0x2ULL)
-#define FLAG_MAT      ((int64_t)0x4ULL)
-#define FLAG_REDUCED  ((int64_t)0x8ULL)
-#define FLAG_ERROR    ((int64_t)0x10ULL)
-#define FLAG_FROZEN   ((int64_t)0x20ULL)
-#define FLAG_STABLE   ((int64_t)0x40ULL)
+#define FLAG_G          ((int64_t)0x1ULL)
+#define FLAG_SHORT      ((int64_t)0x2ULL)
+#define FLAG_MAT        ((int64_t)0x4ULL)
+#define FLAG_REDUCED    ((int64_t)0x8ULL)
+#define FLAG_ERROR      ((int64_t)0x10ULL)
+#define FLAG_FROZEN     ((int64_t)0x20ULL)
+#define FLAG_STABLE     ((int64_t)0x40ULL)
+#define FLAG_COMPRESSED ((int64_t)0x80ULL)
 
 #define DATA_FLAGS ( \
  FLAG_G | FLAG_SHORT | FLAG_MAT | FLAG_REDUCED | FLAG_ERROR) 
@@ -82,11 +83,18 @@ ALIGNED(64) struct mm_fast_g_type {
 
 /// @cond DO_NOT_DOCUMENT
 
+static inline int32_t is_compressed(mm_fast_g_type *p_gobj)
+// return 1 if object *p_gobj is compressed and 0 otherwise
+{
+    return (((p_gobj->int_g)[3] >> 63) == 0);
+}
+
 static uint64_t 
 get_flags(mm_fast_g_type *p_gobj)
 // Return flags of object *p_gobj of type mm_fast_g_typ
 {
     if (p_gobj == NULL) return FLAG_ERROR & FLAG_FROZEN;
+    if (is_compressed(p_gobj)) return FLAG_COMPRESSED & FLAG_FROZEN;
     _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
     uint64_t flags = atomic_load_explicit(
         p_flags,
@@ -120,6 +128,7 @@ void fast_g_obj_get_status(mm_fast_g_type *p_gobj, int64_t *p_status)
      memset(p_status, 0, 5 * sizeof(uint32_t));
      if (p_gobj == NULL) return;
      p_status[0] = get_flags(p_gobj);
+     if (p_status[0] && FLAG_COMPRESSED) return;
      p_status[1] = p_gobj->sub_op;
      p_status[2] = p_gobj->substatus;
      p_status[3] = p_gobj->len_g;
@@ -138,6 +147,7 @@ get_write_access(mm_fast_g_type *p_gobj, uint64_t requested)
 // not (yet) frozen.
 {
     if (p_gobj == NULL) return FLAG_ERROR & FLAG_FROZEN;
+    if (is_compressed(p_gobj)) return FLAG_COMPRESSED & FLAG_FROZEN;
     _Atomic(uint64_t) *p_flags =  get_atomic_p_flags(p_gobj);
     uint64_t flags = atomic_load_explicit(
         p_flags,
@@ -198,6 +208,8 @@ static inline int64_t
 set_error(mm_fast_g_type *p_gobj, int64_t op, int64_t status)
 {
     if (p_gobj == NULL) return FLAG_ERROR | FLAG_FROZEN;
+    if (is_compressed(p_gobj))
+        return FLAG_ERROR | FLAG_FROZEN | FLAG_COMPRESSED;
     _Atomic(uint64_t) *p_flags =  get_atomic_p_flags(p_gobj);
     uint64_t flags = atomic_fetch_or(
         p_flags, FLAG_ERROR | FLAG_FROZEN);
@@ -229,12 +241,32 @@ set_error_ret(mm_fast_g_type *p_gobj, int64_t op, int64_t status)
 
 /// @cond DO_NOT_DOCUMENT
 
+
+static inline void set_non_compressed(mm_fast_g_type *p_gobj)
+{
+    (p_gobj->int_g)[3] |= (uint64_t)(1ULL) << 63;
+}
+
+
+
 static inline void set_int_g_neutral(mm_fast_g_type *p_gobj)
 // Set p_gobj->int_g to the integer code of the neutral element
 {
     p_gobj->int_g[0] = MAT24_ORDER;
     p_gobj->int_g[1] = p_gobj->int_g[2] = p_gobj->int_g[3] = 0;
 }
+
+static int32_t is_int_g_non_neutral(mm_fast_g_type *p_gobj)
+// return p_gobj->int_g is the neutral element and 1 otherwise
+{
+    uint64_t m =  p_gobj->int_g[0] ^ MAT24_ORDER;
+    m |= p_gobj->int_g[1]  | p_gobj->int_g[2];
+    m |= p_gobj->int_g[3] & 0x7fffffffffffffffULL;
+    return m != 0;
+}
+
+
+
 /// @endcond
 
 
@@ -266,6 +298,7 @@ mm_fast_g_type *fast_g_obj_new()
     p_gobj->len_g = p_gobj->len_g_reduced = 0;
     p_gobj->sub_op = p_gobj->substatus = 0;
     set_int_g_neutral(p_gobj);
+    set_non_compressed(p_gobj);
     return p_gobj;
 }
 
@@ -285,6 +318,7 @@ mm_fast_g_type *fast_g_obj_new()
 void fast_g_obj_delete(mm_fast_g_type *p_gobj)
 {
     if (p_gobj == NULL) return;
+    if (is_compressed(p_gobj)) return; 
     get_write_access(p_gobj, (uint64_t)(-1LL));
     // quick and dirty destruction, using interals of mmv_fast_matrix_type
     mm_op_fast_dealloc(p_gobj->p_mat);
@@ -311,6 +345,7 @@ void fast_g_obj_delete(mm_fast_g_type *p_gobj)
 void fast_g_obj_freeze(mm_fast_g_type *p_gobj)
 {
     if (p_gobj == NULL) return;
+    if (is_compressed(p_gobj)) return; 
     uint64_t flags = get_write_access(p_gobj, FLAG_FROZEN);
     release_write_access(p_gobj, flags, flags | FLAG_FROZEN);
 }
@@ -351,6 +386,28 @@ static int64_t compute_mat(mm_fast_g_type *p_gobj, int64_t flags)
 }
 
 
+
+
+/**
+   @brief Wrapper for function  ``fast_g_obj_subgroup_mul_e``
+
+   The function performs the same action as
+   function  ``fast_g_obj_subgroup_mul_e``.  But it sets the most
+   significant bit of the output integer stored in ``pa``.
+*/
+static int32_t subgroup_mul_e(uint32_t *g, uint32_t lg, int32_t eg, 
+         uint32_t *h, uint32_t lh, int32_t eh, uint32_t *out, uint64_t *pa)
+{
+    int32_t res, i;
+    uint64_t a[4];
+    res = fast_g_obj_subgroup_mul_e(g, lg, eg, h, lh, eh, out, a);
+    if (res >= 0) for (i = 0; i < 3; ++i) pa[i] = a[i];
+    pa[3] = a[3] | 0x8000000000000000ULL;
+    return res;
+}
+
+
+
 /**
    @brief Add the reduced word to object of type ``mm_fast_g_type``
 
@@ -364,7 +421,7 @@ static int64_t compute_reduced_subgroup(mm_fast_g_type *p_gobj, int64_t flags)
 {
     if (flags & ~FLAG_G) return flags;
     if (flags & FLAG_REDUCED) return flags;
-    int32_t res = fast_g_obj_subgroup_mul_e(p_gobj->g, p_gobj->len_g, 1,
+    int32_t res = subgroup_mul_e(p_gobj->g, p_gobj->len_g, 1,
                     NULL, 0, 0, p_gobj->g_reduced, p_gobj->int_g);
     if (res < 0) return flags;
     p_gobj->len_g_reduced = res;
@@ -389,7 +446,8 @@ static int64_t compute_reduced(mm_fast_g_type *p_gobj, int64_t flags)
     if (flags & FLAG_REDUCED) return flags;
     if ((flags & FLAG_MAT) == 0) return set_error(p_gobj, 2001, -1);
     len = mm_axis3_fast_reduce_v_g(p_gobj->p_mat, p_gobj->g_reduced,
-        MM_FAST_MAXLEN_G_RED, p_gobj->int_g, 0x1f); 
+        MM_FAST_MAXLEN_G_RED, p_gobj->int_g, 0x1f);
+    set_non_compressed(p_gobj);
     if (len < 0 || len > MM_FAST_MAXLEN_G_RED)
         return set_error(p_gobj, 2002, len | (uint64_t)(-0x80000000LL));
     p_gobj->len_g = 0;
@@ -415,6 +473,7 @@ int64_t augment(mm_fast_g_type *p_gobj, uint64_t requested)
 {
     requested &= DATA_FLAGS;
     uint64_t flags = get_write_access(p_gobj, requested);
+    if (flags & FLAG_COMPRESSED) return flags;
     uint64_t new_flags = flags;
     if ((flags & requested) == requested) {
         if ((flags & FLAG_STABLE) == 0) // we are pedantic here
@@ -534,9 +593,12 @@ failure:
 // %%EXPORT p
 int32_t fast_g_obj_store_g(mm_fast_g_type *p_gobj, uint32_t reduced, uint32_t* pg, uint32_t lg)
 {
-    uint32_t len, i;
+    uint32_t len = 0, i;
+    if (pg == NULL || p_gobj == NULL) return -1;
+    if (is_compressed(p_gobj)) {
+        return mm_compress_pc_expand_int(p_gobj->int_g, pg, lg);
+    }
     uint32_t *pg0 = fast_g_obj_get_g(p_gobj, reduced, &len);
-    if (pg0 == NULL) return -1;
     if (len > lg && reduced == 0) {
         pg0 = fast_g_obj_get_g(p_gobj, 1, &len);
         if (pg0 == NULL) return -1;
@@ -562,6 +624,7 @@ int32_t fast_g_obj_nonneutral(mm_fast_g_type *p_gobj, uint32_t reduced)
 {
     uint32_t flags = get_flags(p_gobj);
     if (flags & FLAG_ERROR) return -2;
+    if (flags & FLAG_COMPRESSED) return is_int_g_non_neutral(p_gobj);
     if (reduced) flags = augment(p_gobj, FLAG_REDUCED); 
     if (flags & FLAG_ERROR) return -2;
     if (flags & FLAG_REDUCED) return p_gobj->len_g_reduced != 0; 
@@ -576,7 +639,7 @@ int32_t fast_g_obj_nonneutral(mm_fast_g_type *p_gobj, uint32_t reduced)
 /**
    @brief sparse matrix of object of type ``mm_fast_g_type``
 
-   The function computes the sparse matrix of vectors of an 
+   The function computes the matrix of vectors of an 
    element ``*p_gobj`` of the Monster, which is of 
    type ``mm_fast_matrix_type``. It returns a pointer to that vector
    of, or NULL in case of failure. 
@@ -585,7 +648,8 @@ int32_t fast_g_obj_nonneutral(mm_fast_g_type *p_gobj, uint32_t reduced)
 mmv_fast_matrix_type *fast_g_obj_get_mat(mm_fast_g_type *p_gobj)
 {
     if (p_gobj == NULL) return NULL;
-    uint64_t flags = augment(p_gobj, FLAG_MAT);
+    uint64_t flags = augment(p_gobj, FLAG_MAT);    
+    if (flags & FLAG_COMPRESSED) return NULL;
     if (flags & FLAG_ERROR || (flags & FLAG_MAT) == 0) {
         set_error(p_gobj, 7001, -1);
         return NULL;
@@ -621,11 +685,44 @@ int32_t fast_g_obj_store_int_fast(mm_fast_g_type *p_gobj, uint64_t *a)
 {
     if (p_gobj == NULL) return -1;
     uint64_t flags = augment(p_gobj, FLAG_REDUCED);
-    if (flags & FLAG_ERROR || (flags & FLAG_REDUCED) == 0) return -2;
+    if ((flags & FLAG_COMPRESSED) == 0) {
+        if (flags & FLAG_ERROR || (flags & FLAG_REDUCED) == 0) return -2;
+    }
     uint32_t i;
     for (i = 0; i < 4; ++i) a[i] = p_gobj->int_g[i];
+    a[3] &= 0x7fffffffffffffffULL;
     return 0;
 }
+
+
+
+/**
+   @brief Return a compressed object of type ``mm_fast_g_type``
+
+   The function compresses the Monster element referred by ``p_gobj``
+   and stores the compressed data in the buffer ``a`` of size 4.
+   It returns a pointer to that buffer, or NULL in case of failure.
+
+   The returned pointer is of type ``mm_fast_g_type*`` and can be
+   used in all exported functions taking arguments of that type.
+   Function ``fast_g_obj_delete`` accepts such a pointer, but
+   performs no actions on it. Here the caller is responsible for
+   managing the buffer ``a``. The content of buffer ``a`` may not
+   be changed while the returned pointer is in use.   
+*/
+// %%EXPORT p
+mm_fast_g_type *fast_g_obj_as_compressed(mm_fast_g_type *p_gobj, uint64_t *a)
+{
+    int32_t i, res = fast_g_obj_store_int_fast(p_gobj, a);
+    if (res >= 0) return (mm_fast_g_type*)a;
+    for (i = 0; i < 4; ++i) a[i] = 0;
+    return NULL;
+}
+
+
+
+
+
 
 
 
@@ -659,6 +756,41 @@ int32_t fast_g_obj_setneutral(mm_fast_g_type *p_gobj)
 **********************************************************************/
 
 
+/// @cond DO_NOT_DOCUMENT
+
+/**
+   @brief Copy data from comporessed object of type ``mm_fast_g_type``
+
+   Here the object of type ``mm_fast_g_type`` referred by ``p_gobj``
+   must be mutable. The function copies the integer representation
+   of a monster element in ``pi`` to the object ``*p_obj`` and
+   set the properties of ``*p_obj`` appropriately. 
+
+   No checks of the data in ``*pi`` or  ``*p_obj`` are made.
+*/
+static inline 
+int32_t fast_g_obj_from_compressed(mm_fast_g_type *p_gobj, uint64_t *pi)
+{
+    uint64_t a[4];
+    for (uint32_t i = 0; i < 4; ++i) a[i] = pi[i];
+    a[3] &= 0x7fffffffffffffffULL;
+    _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
+    atomic_store(p_flags, 0);   // paranoia
+    int32_t status = mm_compress_pc_expand_int(
+         a, p_gobj->g_reduced, MM_FAST_MAXLEN_G_RED);
+    if (status < 0) return set_error_ret(p_gobj, 21011, -1);
+    p_gobj->len_g_reduced = status;
+    a[3] |= 0x8000000000000000ULL;
+    for (uint32_t i = 0; i < 4; ++i) p_gobj->int_g[i] = a[i];
+    atomic_store(p_flags, FLAG_REDUCED | FLAG_SHORT | FLAG_G);
+    return 0;
+}
+
+
+/// @endcond
+
+
+
 /**
    @brief Copy data of object of type ``mm_fast_g_type``
 
@@ -678,6 +810,8 @@ int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t 
     if (is_mutable(flags) == 0) return ERROR_MUTABLE;
     int32_t status = -1;
     if (p_src == NULL) set_error_ret(p_gobj, 21001, -1);
+    if (is_compressed(p_src)) return fast_g_obj_from_compressed(
+        p_gobj, p_src->int_g);
     _Atomic(uint64_t) *p_flags = get_atomic_p_flags(p_gobj);
     uint32_t new_flags = 0;
     uint32_t src_flags = get_flags(p_src);
@@ -758,7 +892,7 @@ int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
     if (flags & FLAG_G) {
         uint32_t *pg = (flags & FLAG_REDUCED)
                 ? p_gobj->g_reduced : p_gobj->g;
-        int32_t status = fast_g_obj_subgroup_mul_e(pg, lg, 1,
+        int32_t status = subgroup_mul_e(pg, lg, 1,
             g, len_g, e, p_gobj->g_reduced, p_gobj->int_g);
         if (status >= 0) {
             p_gobj->len_g_reduced = status;
