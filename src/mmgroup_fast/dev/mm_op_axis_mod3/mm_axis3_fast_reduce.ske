@@ -238,6 +238,7 @@ int32_t mm_axis3_fast_num_entries_A_t(mmv_fast_matrix_type *pm, uint32_t row)
 {
     if (pm == NULL || row >= 4 ||
             pm->p != 3 || pm->mode != 1) return -2;
+    if (pm->initialized == 0) mm_op_fast_zero_data(pm);
     mmv_fast_type *padata = pm->p_v.p_vb[pm->current & 1];
     if (padata == NULL) return -2;
     uint32_t shift = 2 * row;
@@ -311,7 +312,9 @@ int32_t mm_axis3_fast_num_entries_A_t(mmv_fast_matrix_type *pm, uint32_t row)
 // %%EXPORT p
 int32_t mm_axis3_fast_find_exp_t(mmv_fast_matrix_type *pm, uint32_t row, uint32_t ax_type)
 {
-    uint32_t n1 = mm_axis3_fast_num_entries_A_t(pm, row);
+    int32_t status = mm_axis3_fast_num_entries_A_t(pm, row);
+    if (status < 0) return status;
+    uint32_t n1 = status;
     uint32_t n2 = n1 >> 16, i;
     n1 &= 0xffff;
     static int16_t n_expected[13] = {
@@ -683,9 +686,9 @@ static uint32_t V_PM[4] = {
 int32_t mm_axis3_fast_mode1_set_vstd(mmv_fast_matrix_type *pm, uint32_t hash)
 {
     if (pm->mode != 1) return -3;
-    // if (hash) set_hash_vstd(pm);
     if (hash) mm_axis3_fast_load_order_vector(pm);
     else mm_op_fast_zero_data(pm);
+    pm->initialized = 1;
     uint32_t *pv1 = (uint32_t *)MM_VECTOR_V1_MOD3_TABLE;
     uint32_t len_pv1 = pv1[0], i, buf[64];
     ++pv1;
@@ -806,7 +809,7 @@ int32_t mm_axis3_fast_reduce_v_g(mmv_fast_matrix_type *pm, uint32_t *g, uint32_t
     uint32_t *buf = NULL;
     gt_word_type *p_gt = NULL;
     if (mode & 0x10) {
-        p_m1 = mm_op_fast_alloc(3, 4, 1, 0);
+        p_m1 = mm_op_fast_alloc(3, 4, 1);
         if (p_m1 == NULL) goto done;
         res = mm_op_fast_copy_data(pm, p_m1);
         if (res < 0) goto done;

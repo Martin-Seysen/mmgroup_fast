@@ -84,25 +84,31 @@ static inline void zero_mode1(mmv_fast_type *pdest)
 
 
 /**
-   @brief Initialize structure of type ``mmv_fast_matrix_type``
+   @brief Allocate structure of type ``mmv_fast_matrix_type``
 
    The function allocates and returns a pointer to a structure of
    type ``mmv_fast_matrix_type``. Such a structure contains a matrix
    of ``nrows`` row vectors, where each row vector is a vector in the
    Griess algebra with entries take modulo ``p``. Parameter ``mode``
-   determines how the matrix is stored in memory. if ``setzero`` is
-   not 0 then all matrix entries are set to 0; otherwise they are
-   undefined.
-
+   determines how the matrix is stored in memory. 
    Currently the following mmodes are supported:
 
    mode = 1: then p = 3 and nrows <= 4 must hold.
 
    The allocated structure must be freed with
-   function ``mm_op_fast_dealloc`` 
+   function ``mm_op_fast_dealloc``.
+
+   The matrix is initialized to 0 via lazy initialization. To make
+   sure the data in the structure referred by the returned
+   pointer ``pm`` are actually present, one should code:
+
+   ``if (pm->initialized == 0) mm_op_fast_zero_data(pm)``
+
+   This is not necesaary when calling functions exported from
+   this module.
 */
 // %%EXPORT p
-mmv_fast_matrix_type *mm_op_fast_alloc(uint32_t p, uint32_t nrows, uint32_t mode, uint32_t setzero)
+mmv_fast_matrix_type *mm_op_fast_alloc(uint32_t p, uint32_t nrows, uint32_t mode)
 {
      switch (mode) {
          case 0:
@@ -116,16 +122,15 @@ mmv_fast_matrix_type *mm_op_fast_alloc(uint32_t p, uint32_t nrows, uint32_t mode
                      sizeof(mmv_fast_type));
                  if (ptr == NULL) return NULL;
                  mmv_fast_matrix_type *pm = (mmv_fast_matrix_type*)(&ptr[1]);
-                 memset(pm, 0, sizeof(mmv_fast_matrix_type));
                  mmv_fast_type **p_buf = pm->p_v.p_vb;
                  p_buf[0] = ptr;
-                 if (setzero) zero_mode1(ptr);
                  p_buf[1] = NULL;
                  pm->mode = 1;
                  pm->p = p;
                  pm->nrows = nrows;
                  pm->current = 0;
                  pm->work_refcount = 0;
+                 pm->initialized = 0;
                  return pm;
              }
          default:
@@ -134,7 +139,7 @@ mmv_fast_matrix_type *mm_op_fast_alloc(uint32_t p, uint32_t nrows, uint32_t mode
 }
 
 /**
-   @brief Yet to be documented!
+   @brief Frees all buffer allocated by function ``mm_op_fast_alloc``.
 */
 // %%EXPORT p
 void mm_op_fast_dealloc(mmv_fast_matrix_type *pm)
@@ -246,7 +251,8 @@ int32_t mm_op_fast_copy_data(mmv_fast_matrix_type *pm_src, mmv_fast_matrix_type 
                  pm_dest->current = 0;
                  mmv_fast_type *pdest = pdest_buf[0];
                  ASSUME_ALIGNED(pdest, 64);
-                 copy_mode1(psrc, pdest);
+                 pm_dest->initialized = pm_src->initialized;
+                 if (pm_src->initialized) copy_mode1(psrc, pdest);
                  return 0;
              }
          default:
@@ -274,6 +280,7 @@ int32_t mm_op_fast_zero_data(mmv_fast_matrix_type *pm)
                  ptr = p_buf[0];
                  ASSUME_ALIGNED(ptr, 64);
                  zero_mode1(ptr);
+                 pm->initialized = 1;
                  return 0;
              }
          default:
@@ -315,7 +322,13 @@ uint8_t* mm_op_fast_raw_vb_data(mmv_fast_matrix_type *pm, uint32_t *p_len)
 /**
    @brief get an unused buffer inside a strcture ``mmv_fast_matrix_type`` 
 
-   Yet to be documented!
+   In some cases a structure ``mmv_fast_matrix_type`` may have
+   allocated unused buffers that are stable throughout the life
+   time of the structure. If this is the case then the function
+   returns a pointer to such an buffer, which is 64-bit aligned.
+   It returns the size of that buffer (in bytes) in ``*p_size``.
+   If no such buffer exists then the function returns NULL
+   and set ``*p_size`` to zero.
 */
 // %%EXPORT p
 void *mm_op_fast_get_slack(mmv_fast_matrix_type *pm, uint32_t *p_size)

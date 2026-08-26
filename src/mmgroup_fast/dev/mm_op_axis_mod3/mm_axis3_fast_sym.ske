@@ -204,6 +204,8 @@ int32_t mm_axis3_fast_load(mmv_fast_matrix_type *pm, uint32_t row, mmv_fast_Amod
     pa->row_source = pa->sub_row_source = -1;
     mm_axis3_fast_init(pa);
     mmv_fast_row32_type *pa1 = pa->a;
+    if (pm == NULL) return -1;
+    if (pm->initialized == 0) mm_op_fast_zero_data(pm);
     switch (pm->mode) {
         case 1:
             {

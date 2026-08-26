@@ -814,6 +814,8 @@ static int32_t mm_op_fast_op_xy_mma0(
 // %%EXPORT p
 int32_t mm_op_fast_op_xy(mmv_fast_matrix_type *pm, uint32_t f, uint32_t e, uint32_t eps)
 {
+    if (pm == NULL) return -1;
+    if (pm->initialized == 0) return 0;
     uint32_t cur = pm->current &= 1;
     switch (pm->mode) {
         case 1:

@@ -20,6 +20,8 @@ int32_t mm_op_fast_word(mmv_fast_matrix_type *pm, uint32_t *g, int32_t len_g, in
      int32_t status;
      mm_group_iter_t s_it;
 
+     if (pm == NULL) return -1;
+     if (pm->initialized == 0) return 0;
      if (mm_op_fast_alloc_work(pm)) return -1;
      mm_group_iter_start(&s_it, g, len_g, e);
      do {

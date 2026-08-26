@@ -253,7 +253,7 @@ static inline void set_int_g_neutral(mm_fast_g_type *p_gobj)
 // %%EXPORT p
 mm_fast_g_type *fast_g_obj_new()
 {
-    mmv_fast_matrix_type *p_mat = mm_op_fast_alloc(3, 4, 1, 0);
+    mmv_fast_matrix_type *p_mat = mm_op_fast_alloc(3, 4, 1);
     if (p_mat == 0) return NULL;
     uint32_t buf_size;
     // steal a buffer from the ``mmv_fast_matrix_type`` object

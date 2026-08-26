@@ -114,7 +114,7 @@ cdef class MMOpFastMatrix:
     def __init__(self, uint32_t p, uint32_t nrows, uint32_t mode = 1):
         if not p in MAX_NROWS:
             raise ValueError("Bad modulus %s for class MMOpFastArray" % p) 
-        self.m = mm_op_fast_alloc(p, nrows, mode, 1)
+        self.m = mm_op_fast_alloc(p, nrows, mode)
         if self.m == NULL:
              raise ValueError("Too many rows or bad modulus for class MMOpFastArray") 
 

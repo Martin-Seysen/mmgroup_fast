@@ -33,6 +33,7 @@
 static mmv_fast_type* ptr_data_mode1(mmv_fast_matrix_type *pm)
 {
      if (pm != NULL && pm->mode == 1 && pm->p == 3) {
+         if (pm->initialized == 0) mm_op_fast_zero_data(pm);
          mmv_fast_type **p_buf = pm->p_v.p_vb;
          mmv_fast_type *p_data = p_buf[pm->current & 1];
          return p_data;
@@ -122,8 +123,7 @@ void mm_op_fast_mode1_poke(mmv_fast_matrix_type *pm, uint32_t index, uint32_t va
 // %%EXPORT p
 void mm_op_fast_mode1_zero(mmv_fast_matrix_type *pm)
 {
-    mmv_fast_type *pb = ptr_data_mode1(pm);
-    if (pb != 0) memset(pb, 0, MM_FAST_BYTELENGTH * sizeof(uint8_t));
+    if (pm != NULL) mm_op_fast_zero_data(pm);
 }
 
 
@@ -397,7 +397,9 @@ int32_t mm_op_fast_mode1_check_zero(mmv_fast_matrix_type *pm, uint32_t check)
 // %%EXPORT p
 uint64_t mm_op_fast_mode1_hash_coarse(mmv_fast_matrix_type *pm, uint32_t check)
 {
-  /// @cond DO_NOT_DOCUMENT 
+  /// @cond DO_NOT_DOCUMENT
+     if (pm == 0) return 0; 
+     if (pm->initialized == 0) mm_op_fast_zero_data(pm);
      uint64_t mask = (check & 1) + ((check & 2) << 1)
                    + ((check & 4) << 3) + ((check & 8) << 3);
      uint64_t h = 0x1ULL;

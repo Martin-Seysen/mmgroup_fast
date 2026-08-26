@@ -140,7 +140,7 @@ int work(char *f_in_name, char *f_out_name, uint32_t align_offset)
     static char line[MAX_LINE_LEN+2], tag;
     static uint32_t a[MAX_NUMS], i;
     if (align_offset > MAX_SLACK) align_offset = 0;
-    mmv_fast_matrix_type *pv  = mm_op_fast_alloc(3, 4, 1, 1);
+    mmv_fast_matrix_type *pv  = mm_op_fast_alloc(3, 4, 1);
     if (pv == NULL) return -1;
     uint8_t *pb;
     FILE *f_in, *f_out;
