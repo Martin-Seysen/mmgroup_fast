@@ -17,10 +17,11 @@ from mmgroup.generators import mm_group_invert_word
 
 import numpy as np
 from libc.string cimport memcpy 
-from mm_op_fast cimport mm_op_fast_init,  mm_op_fast_dealloc
+from mm_op_fast cimport mm_op_fast_alloc, mm_op_fast_dealloc
 from mm_op_fast cimport mm_axis3_fast_mode1_set_vstd
 from mm_op_fast cimport mm_op_fast_to_mmv, mm_op_fast_from_mmv
 from mm_op_fast cimport mm_op_fast_word, mm_op_fast_raw_vb_data
+from mm_op_fast cimport mm_op_fast_get_slack
 from mm_op_fast cimport mm_axis3_fast_load
 from mm_op_fast cimport mm_axis3_fast_load_a
 from mm_op_fast cimport mm_axis3_fast_load_sub_row
@@ -95,7 +96,7 @@ cdef object mm_compress_array_to_int(const uint64_t *a):
     return result
 
 cdef class MMOpFastMatrix:
-    cdef mmv_fast_matrix_type m 
+    cdef mmv_fast_matrix_type *m 
    
     @staticmethod
     def _complain(res, method):
@@ -104,22 +105,24 @@ cdef class MMOpFastMatrix:
             raise ValueError(err % (hex(res), method))  
 
     def __cinit__(self, *args, **kwds):
-        mm_op_fast_init(&self.m, 0, 0, 0, 0)
+        self.m = NULL
 
     def  __dealloc__(self):
-        mm_op_fast_dealloc(&self.m)
+        if self.m != NULL:
+            mm_op_fast_dealloc(self.m)
 
     def __init__(self, uint32_t p, uint32_t nrows, uint32_t mode = 1):
         if not p in MAX_NROWS:
             raise ValueError("Bad modulus %s for class MMOpFastArray" % p) 
-        if mm_op_fast_init(&self.m, p, nrows, mode, 1) != 0:
+        self.m = mm_op_fast_alloc(p, nrows, mode, 1)
+        if self.m == NULL:
              raise ValueError("Too many rows or bad modulus for class MMOpFastArray") 
 
     def copy(self):
         """Return deep copy of matrix object"""
         cp = MMOpFastMatrix(self.m.p, self.m.nrows, self.m.mode)
-        cdef mmv_fast_matrix_type *pc = &cp.m
-        cdef int32_t status = mm_op_fast_copy_data(&self.m, pc)
+        cdef mmv_fast_matrix_type *pc = cp.m
+        cdef int32_t status = mm_op_fast_copy_data(self.m, pc)
         assert status >= 0
         return cp
 
@@ -131,7 +134,7 @@ cdef class MMOpFastMatrix:
              self.m.work_refcount))
 
     def set_vstd(self, uint32_t hash = 0):
-        cdef int32_t status = mm_axis3_fast_mode1_set_vstd(&self.m, hash)
+        cdef int32_t status = mm_axis3_fast_mode1_set_vstd(self.m, hash)
         assert status == 0, status
 
               
@@ -143,7 +146,7 @@ cdef class MMOpFastMatrix:
         if isinstance(row, MMVector):
             if row.p == self.m.p:
                 row_view = row.data
-                status = mm_op_fast_from_mmv(&self.m, i, &row_view[0])
+                status = mm_op_fast_from_mmv(self.m, i, &row_view[0])
                 if status < 0:
                     self._complain(status, "set_row")
             else:
@@ -157,7 +160,7 @@ cdef class MMOpFastMatrix:
         cdef int32_t status
         v = MMVector(self.m.p)
         cdef uint_mmv_t[:] row_view = v.data
-        status = mm_op_fast_to_mmv(&self.m, i, &row_view[0], len(v.data))
+        status = mm_op_fast_to_mmv(self.m, i, &row_view[0], len(v.data))
         if status < 0:
             self._complain(status, "row_as_mmv")
         return v
@@ -176,9 +179,9 @@ cdef class MMOpFastMatrix:
         else:
             g_data = g.mmdata
         cdef int32_t status
-        status = mm_op_fast_word(&self.m, &g_data[0], len(g_data), e)
+        status = mm_op_fast_word(self.m, &g_data[0], len(g_data), e)
         if status >= 0:
-            #status =  mm_op_fast_dealloc(&self.m, 1)
+            #status =  mm_op_fast_dealloc(self.m, 1)
             pass
         if status < 0:
             self._complain(status, "mul_exp")
@@ -202,7 +205,7 @@ cdef class MMOpFastMatrix:
         t = time.time()
         for i in range(n):
              status |= mm_op_fast_word(
-                 &self.m, &g_data[0], len(g_data), e) < 0
+                 self.m, &g_data[0], len(g_data), e) < 0
         t =  time.time() - t
         if status:
             err = "Error in class MMOpFastArray, method mul_exp_bench"
@@ -211,7 +214,7 @@ cdef class MMOpFastMatrix:
 
     def num_entries_A_t(self, uint32_t row):
         assert 0 <= row < 4
-        cdef int32_t res = mm_axis3_fast_num_entries_A_t(&self.m, row)
+        cdef int32_t res = mm_axis3_fast_num_entries_A_t(self.m, row)
         assert res >= 0, res
         return res & 0xffff, res >> 16
 
@@ -219,7 +222,7 @@ cdef class MMOpFastMatrix:
         if isinstance(ax_type, str):
             ax_type = ORBIT_DICT[ax_type] 
         cdef uint32_t ax_t = ax_type 
-        cdef t = mm_axis3_fast_find_exp_t(&self.m, row, ax_t)
+        cdef t = mm_axis3_fast_find_exp_t(self.m, row, ax_t)
         assert t >= 0, (ax_t, t)
         return t
 
@@ -229,7 +232,7 @@ cdef class MMOpFastMatrix:
         cdef uint32_t la = len(a)
         cdef int32_t status
         if la:
-            status = mm_op_fast_mode1_get(&self.m, &r[0], la)
+            status = mm_op_fast_mode1_get(self.m, &r[0], la)
             assert status >= 0
         return a
 
@@ -239,20 +242,20 @@ cdef class MMOpFastMatrix:
         cdef uint32_t la = len(a)
         cdef int32_t status
         if la:
-            status = mm_op_fast_mode1_put(&self.m, &r[0], la)
+            status = mm_op_fast_mode1_put(self.m, &r[0], la)
             assert status >= 0
 
     def zero_data(self):
-        mm_op_fast_mode1_zero(&self.m)
+        mm_op_fast_mode1_zero(self.m)
 
     def _poke(self, uint32_t index, uint32_t value):
-        mm_op_fast_mode1_poke(&self.m, index, value)
+        mm_op_fast_mode1_poke(self.m, index, value)
 
     def reduce_axes(self):
         a = np.zeros(128, dtype = np.uint32)
         cdef uint32_t[:] r = a
         cdef int32_t status
-        status = mm_axis3_fast_reduce_axes(&self.m, &r[0], 128)
+        status = mm_axis3_fast_reduce_axes(self.m, &r[0], 128)
         assert status >= 0, status
         return a[:status]    
 
@@ -260,7 +263,7 @@ cdef class MMOpFastMatrix:
         a = np.zeros(12, dtype = np.uint32)
         cdef uint32_t[:] r = a
         cdef int32_t status
-        status = mm_axis3_fast_reduce_G_x0(&self.m, &r[0])
+        status = mm_axis3_fast_reduce_G_x0(self.m, &r[0])
         assert status >= 0, status
         return a[:status]    
 
@@ -269,7 +272,7 @@ cdef class MMOpFastMatrix:
         cdef uint32_t[:] r = a
         cdef int32_t status
         cdef uint64_t *p_dummy = NULL
-        status = mm_axis3_fast_reduce_v_g(&self.m, &r[0], len(a), p_dummy, mode);
+        status = mm_axis3_fast_reduce_v_g(self.m, &r[0], len(a), p_dummy, mode);
         assert status >= 0, status
         return a[:status]    
 
@@ -279,7 +282,7 @@ cdef class MMOpFastMatrix:
         cdef uint64_t a[4]
         cdef uint64_t[:] a_view = a
         cdef int32_t status
-        status = mm_axis3_fast_reduce_v_g(&self.m, &d_view[0], 80, &a_view[0], 0x1b);
+        status = mm_axis3_fast_reduce_v_g(self.m, &d_view[0], 80, &a_view[0], 0x1b);
         assert status >= 0, status
         return (int(a_view[0]) + (int(a_view[1]) << 64) +
              (int(a_view[2]) << 128) + (int(a_view[3]) << 192))
@@ -287,14 +290,16 @@ cdef class MMOpFastMatrix:
     def dump(self):
         return MMOpFastMatrixDump(self)
 
-
-
+    def _slack_size(self):
+        cdef uint32_t ssize = 0
+        cdef void *p_slack = mm_op_fast_get_slack(self.m, &ssize)
+        return 0 if (p_slack == NULL) else ssize
 
 class MMOpFastMatrixDump:
     def __init__(self, matrix):
         assert isinstance(matrix, MMOpFastMatrix)
         cdef MMOpFastMatrix mymatrix = matrix
-        cdef mmv_fast_matrix_type m = mymatrix.m
+        cdef mmv_fast_matrix_type *m = mymatrix.m
         self.mode = m.mode
         self.p = m.p 
         self.nrows = m.nrows

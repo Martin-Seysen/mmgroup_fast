@@ -39,7 +39,7 @@ cdef class MMOpFastAmod3:
         #print("mmv_fast_Amod3_type object at address", hex(<size_t>(&self.a))) 
         if isinstance(source, MMOpFastMatrix):
             src = source
-            pmatrix = &(src.m)
+            pmatrix = src.m
             row_ = row
             status = mm_axis3_fast_load(pmatrix, row_, &self.a)
             if status >= 0:

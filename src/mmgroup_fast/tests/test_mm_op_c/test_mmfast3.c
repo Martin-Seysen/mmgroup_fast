@@ -139,18 +139,13 @@ int work(char *f_in_name, char *f_out_name, uint32_t align_offset)
 {
     static char line[MAX_LINE_LEN+2], tag;
     static uint32_t a[MAX_NUMS], i;
-    static struct {
-        mmv_fast_matrix_type v;
-        char slack[MAX_SLACK];
-    } vbuf;
     if (align_offset > MAX_SLACK) align_offset = 0;
-    mmv_fast_matrix_type *pv 
-        = (mmv_fast_matrix_type*)((char*)(&vbuf) + align_offset);
+    mmv_fast_matrix_type *pv  = mm_op_fast_alloc(3, 4, 1, 1);
+    if (pv == NULL) return -1;
     uint8_t *pb;
     FILE *f_in, *f_out;
     int32_t status = 0, len;
    
-    mm_op_fast_init(pv, 3, 4, 1, 1);
     pb = mm_op_fast_raw_vb_data(pv, NULL);
     srand((unsigned int)time(NULL)); // seed with current time
     for (i = 0; i < MM_FAST_BYTELENGTH; ++i) {

@@ -84,7 +84,7 @@ cdef class MMOpFastG:
         if pmat == NULL:
             self._chk(-1, 4)
         m = MMOpFastMatrix(3, 4, 1)
-        cdef mmv_fast_matrix_type *pc = &m.m
+        cdef mmv_fast_matrix_type *pc = m.m
         self._chk(mm_op_fast_copy_data(pmat, pc), 2)
         return m
 

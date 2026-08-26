@@ -38,14 +38,13 @@
 
 
 ALIGNED(64) struct mm_fast_g_type {
-    mmv_fast_type vdata;
+    uint64_t int_g[4];
     ALIGNED(64) uint64_t atomic_buffer[16];
-    mmv_fast_matrix_type mat;
+    mmv_fast_matrix_type *p_mat;
     uint32_t len_g;
     uint32_t g[MM_FAST_MAXLEN_G];
     uint32_t len_g_reduced;
     uint32_t g_reduced[MM_FAST_MAXLEN_G_RED];
-    uint64_t int_g[4];
     int64_t substatus;  // error status from lower level
     int64_t sub_op;     // operation where erro occured
 };
@@ -254,11 +253,13 @@ static inline void set_int_g_neutral(mm_fast_g_type *p_gobj)
 // %%EXPORT p
 mm_fast_g_type *fast_g_obj_new()
 {
-    mmv_fast_matrix_type mat;
-    mm_fast_g_type *p_gobj;
-    if (mm_op_fast_init(&mat, 3, 4, 1, 0) < 0) return NULL;
-    p_gobj = (mm_fast_g_type*)(mat.p_v.p_vb[0]);
-    memcpy(&p_gobj->mat, &mat, sizeof(mat));
+    mmv_fast_matrix_type *p_mat = mm_op_fast_alloc(3, 4, 1, 0);
+    if (p_mat == 0) return NULL;
+    uint32_t buf_size;
+    // steal a buffer from the ``mmv_fast_matrix_type`` object
+    mm_fast_g_type *p_gobj = mm_op_fast_get_slack(p_mat, &buf_size);
+    if (buf_size < sizeof(mm_fast_g_type)) return NULL;
+    p_gobj->p_mat = p_mat;
     _Atomic(uint64_t) *p_refcount =  get_atomic_p_flags(p_gobj);
     atomic_init(p_refcount,
          FLAG_G | FLAG_SHORT | FLAG_REDUCED | FLAG_STABLE);
@@ -285,13 +286,8 @@ void fast_g_obj_delete(mm_fast_g_type *p_gobj)
 {
     if (p_gobj == NULL) return;
     get_write_access(p_gobj, (uint64_t)(-1LL));
-    // quick and dirty destruction, using interals of mmv_fast_matrix_type 
-    mmv_fast_matrix_type *pm = &p_gobj->mat;
-    mmv_fast_type **p_buf = pm->p_v.p_vb;
-    if (p_buf[1] != NULL) {
-        mm_op_fast_buffer_free(p_buf[1], sizeof(mmv_fast_type));
-    }
-    mm_op_fast_buffer_free(p_buf[0], sizeof(mmv_fast_type));
+    // quick and dirty destruction, using interals of mmv_fast_matrix_type
+    mm_op_fast_dealloc(p_gobj->p_mat);
 }
 
 
@@ -348,8 +344,8 @@ static int64_t compute_mat(mm_fast_g_type *p_gobj, int64_t flags)
          pg = p_gobj->g;
          g_len = p_gobj->len_g;
     } else return set_error(p_gobj, 1002, status); 
-    mm_axis3_fast_mode1_set_vstd(&p_gobj->mat, 1);
-    status = mm_op_fast_word(&p_gobj->mat, pg, g_len, 1);
+    mm_axis3_fast_mode1_set_vstd(p_gobj->p_mat, 1);
+    status = mm_op_fast_word(p_gobj->p_mat, pg, g_len, 1);
     if (status < 0) return set_error(p_gobj, 1003, status); 
     return flags | FLAG_MAT;
 }
@@ -392,7 +388,7 @@ static int64_t compute_reduced(mm_fast_g_type *p_gobj, int64_t flags)
     int32_t len;
     if (flags & FLAG_REDUCED) return flags;
     if ((flags & FLAG_MAT) == 0) return set_error(p_gobj, 2001, -1);
-    len = mm_axis3_fast_reduce_v_g(&p_gobj->mat, p_gobj->g_reduced,
+    len = mm_axis3_fast_reduce_v_g(p_gobj->p_mat, p_gobj->g_reduced,
         MM_FAST_MAXLEN_G_RED, p_gobj->int_g, 0x1f); 
     if (len < 0 || len > MM_FAST_MAXLEN_G_RED)
         return set_error(p_gobj, 2002, len | (uint64_t)(-0x80000000LL));
@@ -594,7 +590,7 @@ mmv_fast_matrix_type *fast_g_obj_get_mat(mm_fast_g_type *p_gobj)
         set_error(p_gobj, 7001, -1);
         return NULL;
     }
-    return  &p_gobj->mat;
+    return  p_gobj->p_mat;
 }
 
 
@@ -698,7 +694,7 @@ int32_t fast_g_obj_copy(mm_fast_g_type *p_gobj, mm_fast_g_type *p_src, uint32_t 
     if (p_gobj == p_src) return 0;
     atomic_store(p_flags, 0);  // paranoia
     if (src_flags & FLAG_MAT) {
-        status = mm_op_fast_copy_data(&p_src->mat, &p_gobj->mat);
+        status = mm_op_fast_copy_data(p_src->p_mat, p_gobj->p_mat);
         if (status < 0) return set_error_ret(p_gobj, 21003, status);
         new_flags |= FLAG_MAT;
     } 
@@ -782,7 +778,7 @@ int32_t mulexp(mm_fast_g_type *p_gobj, uint32_t *g, uint32_t len_g, int32_t e)
     atomic_store(p_flags, 0);  // paranoia
     // Multiply component p_gobj->mat by g**e if present
     if (flags  & FLAG_MAT) {
-        uint32_t status = mm_op_fast_word(&p_gobj->mat, g, len_g, e);
+        uint32_t status = mm_op_fast_word(p_gobj->p_mat, g, len_g, e);
         if (status < 0) return set_error_ret(p_gobj, 31004, status);
     } 
 

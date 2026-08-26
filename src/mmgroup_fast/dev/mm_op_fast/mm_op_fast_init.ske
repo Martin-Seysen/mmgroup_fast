@@ -86,34 +86,39 @@ static inline void zero_mode1(mmv_fast_type *pdest)
 /**
    @brief Initialize structure of type ``mmv_fast_matrix_type``
 
-   The function initializes a structure of type ``mmv_fast_matrix_type``
-   referred by ``pm``. Such a structure contains a matrix of ``nrows``
-   row vectors, where each row vector is a vector in the Griess algebra
-   with entries take modulo ``p``. Parameter ``mode`` determines how
-   the matrix is stored in memory. if ``setzero`` is not 0 then all
-   matrix entries are set to 0; otherwise they are undefined.
+   The function allocates and returns a pointer to a structure of
+   type ``mmv_fast_matrix_type``. Such a structure contains a matrix
+   of ``nrows`` row vectors, where each row vector is a vector in the
+   Griess algebra with entries take modulo ``p``. Parameter ``mode``
+   determines how the matrix is stored in memory. if ``setzero`` is
+   not 0 then all matrix entries are set to 0; otherwise they are
+   undefined.
 
    Currently the following mmodes are supported:
 
-   mode = 0: structure is delibarately uninitialized
    mode = 1: then p = 3 and nrows <= 4 must hold.
+
+   The allocated structure must be freed with
+   function ``mm_op_fast_dealloc`` 
 */
 // %%EXPORT p
-int32_t mm_op_fast_init(mmv_fast_matrix_type *pm, uint32_t p, uint32_t nrows, uint32_t mode, uint32_t setzero)
+mmv_fast_matrix_type *mm_op_fast_alloc(uint32_t p, uint32_t nrows, uint32_t mode, uint32_t setzero)
 {
-     // int32_t status;
-     
-     memset(pm, 0, sizeof(mmv_fast_matrix_type));
      switch (mode) {
          case 0:
-             return 0;
+             return NULL;
          case 1:
              {
-                 mmv_fast_type **p_buf = pm->p_v.p_vb, *ptr;
-                 if (p != 3 ||  nrows > 4) return -1;
-                 p_buf[0] = ptr = (mmv_fast_type*)mm_op_fast_buffer_alloc(
-                     sizeof(mmv_fast_type));
+                 if (p != 3 ||  nrows > 4) return NULL;
+                 mmv_fast_type *ptr;
                  ASSUME_ALIGNED(ptr, 64);
+                 ptr = (mmv_fast_type*)mm_op_fast_buffer_alloc(
+                     sizeof(mmv_fast_type));
+                 if (ptr == NULL) return NULL;
+                 mmv_fast_matrix_type *pm = (mmv_fast_matrix_type*)(&ptr[1]);
+                 memset(pm, 0, sizeof(mmv_fast_matrix_type));
+                 mmv_fast_type **p_buf = pm->p_v.p_vb;
+                 p_buf[0] = ptr;
                  if (setzero) zero_mode1(ptr);
                  p_buf[1] = NULL;
                  pm->mode = 1;
@@ -121,10 +126,10 @@ int32_t mm_op_fast_init(mmv_fast_matrix_type *pm, uint32_t p, uint32_t nrows, ui
                  pm->nrows = nrows;
                  pm->current = 0;
                  pm->work_refcount = 0;
-                 return 0;
+                 return pm;
              }
          default:
-             return -1;
+             return NULL;
      }
 }
 
@@ -134,6 +139,7 @@ int32_t mm_op_fast_init(mmv_fast_matrix_type *pm, uint32_t p, uint32_t nrows, ui
 // %%EXPORT p
 void mm_op_fast_dealloc(mmv_fast_matrix_type *pm)
 {
+     if (pm == NULL) return;
      switch (pm->mode) {
          case 1:
              {
@@ -164,6 +170,7 @@ void mm_op_fast_dealloc(mmv_fast_matrix_type *pm)
 // %%EXPORT p
 int32_t mm_op_fast_alloc_work(mmv_fast_matrix_type *pm)
 {
+     if (pm == NULL) return 0;
      switch (pm->mode) {
          case 1:
              {
@@ -195,6 +202,7 @@ int32_t mm_op_fast_alloc_work(mmv_fast_matrix_type *pm)
 // %%EXPORT p
 int32_t mm_op_fast_dealloc_work(mmv_fast_matrix_type *pm)
 {
+     if (pm == NULL) return 0;
      switch (pm->mode) {
          case 1:
              {
@@ -287,6 +295,7 @@ uint8_t* mm_op_fast_raw_vb_data(mmv_fast_matrix_type *pm, uint32_t *p_len)
 {
      uint32_t len = 0;
      uint8_t *p_data = NULL;
+     if (pm == NULL) return NULL;
      switch (pm->mode) {
          case 1:
              {
@@ -303,7 +312,34 @@ uint8_t* mm_op_fast_raw_vb_data(mmv_fast_matrix_type *pm, uint32_t *p_len)
 }
 
 
+/**
+   @brief get an unused buffer inside a strcture ``mmv_fast_matrix_type`` 
 
+   Yet to be documented!
+*/
+// %%EXPORT p
+void *mm_op_fast_get_slack(mmv_fast_matrix_type *pm, uint32_t *p_size)
+{
+     if (p_size) *p_size = 0;
+     if (pm == NULL) return NULL;
+     switch (pm->mode) {
+         case 1:
+             {
+                 if (pm->p != 3 ||  pm->nrows > 4) break; 
+                 mmv_fast_type **p_buf = pm->p_v.p_vb;
+                 uint8_t *p_start = (uint8_t *)p_buf[0];
+                 if (p_start == NULL) break;
+                 uint8_t *p_end = p_start + 0x40000; 
+                 p_start += sizeof(mmv_fast_type);
+                 p_start += (sizeof(mmv_fast_matrix_type) + 127ULL) & (~63ULL);
+                 if (p_size) *p_size = (uint32_t)(p_end-p_start);
+                 return p_start;
+             }
+         default:
+             break;
+     }
+     return NULL;
+}
 
 
 
