@@ -681,7 +681,7 @@ mmv_fast_matrix_type *fast_g_obj_get_mat(mm_fast_g_type *p_gobj)
    function ``mm_compress_pc_expand_int`` in file ``MM_compress.c``. 
 */
 // %%EXPORT p
-int32_t fast_g_obj_store_int_fast(mm_fast_g_type *p_gobj, uint64_t *a)
+int32_t fast_g_obj_store_as_int(mm_fast_g_type *p_gobj, uint64_t *a)
 {
     if (p_gobj == NULL) return -1;
     uint64_t flags = augment(p_gobj, FLAG_REDUCED);
@@ -693,6 +693,31 @@ int32_t fast_g_obj_store_int_fast(mm_fast_g_type *p_gobj, uint64_t *a)
     a[3] &= 0x7fffffffffffffffULL;
     return 0;
 }
+
+
+/**
+   @brief Check equality of objects of type ``mm_fast_g_type``
+
+   Let ``g1`` and  ``g2`` be the elements of the Monster referred
+   by  ``p_g1`` and ``p_g2``. The function returns 1 if ``g1 == g2``,
+   0 if  ``g1 != g2``, and a negative value if the comparison fails.
+*/
+// %%EXPORT p
+int32_t fast_g_obj_check_equal(mm_fast_g_type *p_g1, mm_fast_g_type *p_g2)
+{
+    int32_t status, i;
+    uint64_t a1[4], a2[4], res = 0;
+    status = fast_g_obj_store_as_int(p_g1, a1);
+    if (status < 0) return status;
+    status = fast_g_obj_store_as_int(p_g2, a2);
+    if (status < 0) return status;
+    for (i = 0; i < 4; ++i) res |= a1[i] ^ a2[i];
+    return res == 0;
+}
+
+
+
+
 
 
 
@@ -713,7 +738,7 @@ int32_t fast_g_obj_store_int_fast(mm_fast_g_type *p_gobj, uint64_t *a)
 // %%EXPORT p
 mm_fast_g_type *fast_g_obj_as_compressed(mm_fast_g_type *p_gobj, uint64_t *a)
 {
-    int32_t i, res = fast_g_obj_store_int_fast(p_gobj, a);
+    int32_t i, res = fast_g_obj_store_as_int(p_gobj, a);
     if (res >= 0) return (mm_fast_g_type*)a;
     for (i = 0; i < 4; ++i) a[i] = 0;
     return NULL;

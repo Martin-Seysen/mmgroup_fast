@@ -1,4 +1,6 @@
 from mmgroup.structures.construct_mm import iter_strings_from_atoms
+from mmgroup.structures.construct_mm import iter_mm
+from mmgroup.structures.construct_mm import add_to_embedded_classes
 
 
 cdef class MMOpFastG:
@@ -16,20 +18,24 @@ cdef class MMOpFastG:
     cdef mm_fast_g_type *ptr
 
     def __cinit__(self, *args, **kwds):
-        self.ptr = <mm_fast_g_type *>fast_g_obj_new()
-        if self.ptr == NULL:
-            raise MemoryError("Out of memory for class MMOpFastG")
+        self.ptr = NULL
 
     def  __dealloc__(self):
         fast_g_obj_delete(self.ptr)
         self.ptr = NULL
 
-    def __init__(self, *g):
-        if len(g):
-            try:
-                self.mulexp(MM0(*g))
-            except:
-                self.mulexp(g)
+    @cython.boundscheck(False)
+    def __init__(self, tag = None, atom = None, *args, **kwds):
+        cdef mm_fast_g_type *ptr =  <mm_fast_g_type *>fast_g_obj_new()
+        if ptr == NULL:
+            raise MemoryError("Out of memory for class MMOpFastG")
+        data =  np.fromiter(iter_mm(MM0, tag, atom), 
+            dtype = np.uint32) 
+        cdef uint32_t[::1] m_data = data
+        cdef int32_t  status 
+        status = fast_g_obj_mulexp(ptr, &m_data[0], len(m_data), 1)
+        self._chk(status, 1)
+        self.ptr = ptr
 
     def _display_flags(self):
         cdef int64_t status[5]
@@ -94,7 +100,7 @@ cdef class MMOpFastG:
     def as_int(self):
         """Warning: not compatible to method as_int of class MM"""
         cdef uint64_t a[4]
-        self._chk(fast_g_obj_store_int_fast(self.ptr, &a[0]), 5)
+        self._chk(fast_g_obj_store_as_int(self.ptr, &a[0]), 5)
         return (int(a[0]) + (int(a[1]) << 64) +
              (int(a[2]) << 128) + (int(a[3]) << 192))
 
@@ -102,7 +108,7 @@ cdef class MMOpFastG:
         """Warning: not compatible to method as_int of class MM"""
         a = np.zeros(4, dtype = np.uint64)
         cdef uint64_t[::1] a_view = a
-        self._chk(fast_g_obj_store_int_fast(self.ptr, &a_view[0]), 5)
+        self._chk(fast_g_obj_store_as_int(self.ptr, &a_view[0]), 5)
         return a
 
     def chk_neutral(self, uint32_t reduce = True):
@@ -187,6 +193,17 @@ cdef class MMOpFastG:
         else:
            return self.conj(other)
 
+    def __eq__(self, other):
+        cdef MMOpFastG other_obj
+        if  isinstance(other, MMOpFastG):
+            other_obj = other
+        else:
+            other_obj = MMOpFastG("m", other.mmdata)
+        cdef mm_fast_g_type *p_other = other_obj.ptr
+        cdef int32_t status = fast_g_obj_check_equal(self.ptr, p_other)
+        self._chk(status, 2)
+        return status
+       
     def raw_str_word(self):
         """Convert group atom ``g`` to a string
 
@@ -198,6 +215,11 @@ cdef class MMOpFastG:
         return s if s else "1"
                  
     def __str__(self):
-        return "MMFG<%s>" % self.raw_str_word()  
+        return "MMFG<%s>" % self.raw_str_word()
 
     __repr__ = __str__
+
+
+
+
+add_to_embedded_classes(MMOpFastG)
